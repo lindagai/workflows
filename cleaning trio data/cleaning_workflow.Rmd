@@ -1,0 +1,462 @@
+---
+title: "Cleaning trio data"
+author:
+- name: Linda Gai
+  affiliation: Johns Hopkins School of Public Health
+  email: lindagai@jhu.edu
+output:
+  BiocStyle::html_document
+abstract: |
+  Workflow for cleaning case-parent trio data to prepare for common and rare variants analysis.
+vignette: |
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+In this workflow, we will clean an example dataset of cleft palate case-parent trios, consisting of markers from the 8q24 region, to prepare for trio analysis.
+
+# Setup
+
+## Indexing the VCF
+
+If your VCF file is very large, or you plan on filtering the VCF for rare variant analysis, Tabix indexing the VCF prior to analysis is highly recommended. Tabix indexing allows us to efficiently read in small parts  as well as filter the VCF using the Bioconductor package `VariantAnnotation`.
+
+Note that the VCF must be bgzipped prior to Tabix indexing. Both Tabix indexing and bgzipping can be done with bcftools, which can be downloaded [here](http://www.htslib.org/download/).
+
+JHPCE already has bcftools available on the cluster. On JHPCE, it can be accessed by entering the following in Terminal. Here, we use bcftools 1.2.
+
+```{r,eval=FALSE}
+module load bcftools
+```
+
+## R packages
+
+This workflow uses the following R packages:
+
+```{r,eval=FALSE}
+#Bioconductor
+library(VariantAnnotation)
+library(trio)
+
+#CRAN
+library(dplyr)
+library(ggplot2)
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+If you do not have them, run the following code:
+
+```{r,eval = FALSE}
+#Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager")
+BiocManager::install("VariantAnnotation", "trio")
+
+#CRAN
+install.packages("dplyr")
+install.packages("ggplot2")
+```
+
+Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
+
+# Indexing the VCF file
+
+We first bgzip the VCF and Tabix index it -- this will allow us to read in small sections of the VCF at a time, but this is only necessary if we have a very large VCF that has not been subsetted to a region or regions of interest. Here, we use bcftools 1.2 to do this:
+
+```{r,eval = FALSE}
+#In Terminal
+module load bcftools
+bcftools view trio.data.vcf -Oz -o trio.data.vcf.bgz
+bcftools index trio.data.vcf.bgz
+```
+
+# Cleaning your VCF file prior to analysis
+
+## Example data set
+
+For the example analysis, we will begin by cleaning a raw VCF dataset consisting of 996 case-parent trios affected with cleft lip, with or without cleft palate (CL/P) with 10 SNPs. It can be accessed on JHPCE by running the following code:
+
+```{r,eval = FALSE}
+filepath.vcf<-"/dcl01/beaty/data/gmkf/euro/vcfs/filtered/8q24.recode.vcf"
+hg.assembly<-"hg19"
+vcf<-VariantAnnotation::readVcf(filepath.vcf, hg.assembly)
+```
+
+To start with, we need to check to make sure the VCF is clean and in the correct format. We first check the genotype entries to ensure that they are in the correct format:
+
+```{r,eval = FALSE}
+table(geno(vcf)$GT)
+```
+
+```{r,echo = FALSE}
+filepath.table.raw<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/table.raw.vcf.RDS"
+table.raw<-readRDS(filepath.table.raw)
+table.raw
+```
+
+`geno` is an accessor function that obtains genotype data described in the `FORMAT` fields of the VCF, and `GT` is the matrix of genotypes for each individual. Each entry in `GT` gives the genotype for a particular individual at a particular SNP. Each row in `GT` corresponds to a particular SNP, and each column corresponds to an individual (or sample). Additional information on using `VariantAnnotation` for manipulating VCFs can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/VariantAnnotation/inst/doc/VariantAnnotation.pdf).
+
+## Missing and half-calls
+Looking at the above output, we can see that we have many missing calls (`.`), as well as half-calls (`0/.` and `1/.`). Half-calls should be set to missing, and a delimiter should be added, since software like BEAGLE require a delimiter between the alleles to read in the VCF.
+
+```{r,eval = FALSE}
+geno(vcf)$GT[geno(vcf)$GT == "."]<-"./."
+geno(vcf)$GT[geno(vcf)$GT == "1/."]<-"./."
+geno(vcf)$GT[geno(vcf)$GT == "0/."]<-"./."
+```
+
+## Remove duplicated sites and multi-allelic SNPs
+Most trio analysis methods are only for bi-allelic SNPs, so we remove multi-allelic sites with the code below.
+
+```{r,eval = FALSE}
+duplicate.sites<-start(rowRanges(vcf))[duplicated(start(rowRanges(vcf)))]
+
+#How many sites are in the raw VCF?
+start(rowRanges(vcf)) %>% length
+
+#How many sites are duplicated?
+duplicate.sites %>% length
+
+vcf<-vcf[-which(start(rowRanges(vcf)) %in% duplicate.sites),]
+```
+
+`start(rowRanges(vcf))` accesses the genomic position for each genotype in the VCF. 
+
+A thorough understanding of the other functions described in the above block of code is not necessary for understanding the rest of this workflow, but is helpful for understanding how VCF files are organized and how genomic information in Bioconductor-style objects. `rowRanges` accesses information from the [CHROM, POS, and ID fields of the VCF file](https://grunwaldlab.github.io/Population_Genetics_in_R/reading_vcf.html), which is represented as a `GRanges` object. `GRanges` objects are used to store genomic locations within the Bioconductor project. A good introduction to `GRanges` objects can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/GenomicRanges/inst/doc/GenomicRangesIntroduction.html).
+
+## Write out
+Depending on the size of your file and the power of your computer, even reading in the VCF and checking for missing observations can be quite time-consuming. As such, it can be a good idea to write out the VCF after each time-consuming step:
+
+1. You avoid the need to re-run your previous work if you mess up.
+2. File I/O is slow, but running many of the functions described in this workflow is often even slower.
+3. If you need to alter the code provided in any way, having files saved at intermediate steps often allows for easier debugging (though ideally you have also integrated [automated testing/debugging](https://kbroman.org/pkg_primer/pages/tests.html) into your workflow as well!).
+
+So save time by saving your steps! `VariantAnnotation` has a convenient function for writing out VCFs:
+
+```{r,eval = FALSE}
+filepath.filtered.vcf<-"your filepath here"
+writeVcf(vcf,filepath.filtered.vcf)
+```
+
+# Cleaning your PED file prior to analysis
+Generally, pedigree information is not included in the VCF file itself, but in a separate PED file, a text file containing 6 columns:
+
+1. **famid** - family ID
+2. **pid** - personal ID unique to every individual in the data set
+3. **fatid** - father ID (only available for child cases)
+4. **motid** - mother ID (only available for child cases)
+5. **sex** - 1 if individual is male, 0 for female
+6. **affected** - 1 if individual is affected, 0 for unaffected
+
+Note that this is the same format as the first 6 columns of the PLINK PED file, a popular alternative filetype for storing genomic data.
+
+The raw PED file accompanying the test VCF is shown below:
+
+```{r,eval = FALSE}
+filepath.ped<-"/dcl01/beaty/data/gmkf/euro/peds/gmkf_euro_completetrios.csv"
+ped <- read.csv(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
+head(ped)
+```
+
+```{r,echo = FALSE}
+filepath.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios.csv"
+ped <- read.csv(filepath.ped,header=TRUE)
+#ped <- read.csv(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
+head(ped)
+```
+
+## Ensure column names are correct
+Looking at the top 10 lines of the file, we see that the columns need to be renamed. We will do so using `dplyr`-style pipes: 
+
+```{r}
+ped<-ped %>%
+  rename("famid"="Family.ID",
+         "pid"="Individual.ID",
+         "fatid"="Father.ID",
+         "motid"="Mother.ID",
+         "sex" = "Gender",
+         "affected"="Clinical.Status")
+```
+
+## Select only the necessary columns
+```{r}
+ped<-ped %>%
+        select( "famid", "pid", "fatid", "motid", "sex","affected")
+head(ped)
+```
+
+## Ensure sex and affected are coded as 1/0, not "male/female" or "affected/unaffected"
+
+```{r}
+ped <- ped %>%
+        mutate(sex = ifelse(sex == "male", 1, 0)) %>%
+        mutate(affected = ifelse(affected == "Affected", 1, 0))
+
+head(ped)
+```
+
+## Ensure the all PIDs in the VCF and PED files match in format
+All subjects in the VCF must also appear (with the same ID) in the PED file, and vice versa.
+
+We first manually check to see if the first few PIDs in the PED and VCF look the same:
+
+```{r,eval = FALSE}
+#Examine PIDs in VCF and PED
+vcf.pid<-colnames(geno(vcf)$GT)
+head(vcf.pid)
+```
+```{r,echo = FALSE}
+filepath.vcf.ids<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/raw.vcf.PID.RDS"
+vcf.pid<-readRDS(filepath.vcf.ids)
+head(vcf.pid)
+```
+```{r}
+head(ped$pid)
+```
+
+Clearly, the VCF PIDs are different from the PED PIDs. Closer examination reveals that the PIDs in the VCF look like the pids from the PED pasted together twice, with a prefix of "HTZ-". Modify the PED PIDs accordingly:
+```{r}
+#Modify PIDs in PED to match VCF
+ped <- ped %>%
+        mutate(pid = paste0("H_TZ-",pid,"-",pid)) %>%
+        mutate(fatid = ifelse(fatid == 0, "0",
+                              paste0("H_TZ-",fatid,"-",fatid))) %>%
+        mutate(motid = ifelse(motid == 0, "0",
+                              paste0("H_TZ-",motid,"-",motid)))
+```
+
+## Identify any PIDs in VCF but not in PED and vice versa
+
+Now, we check to see whether there are any PIDs in the VCF that aren't in the PED file:
+
+```{r}
+setdiff(vcf.pid,ped$pid)
+```
+And whether there are any PIDs in the PED file that aren't in the VCF:
+```{r}
+setdiff(ped$pid,vcf.pid)
+```
+
+A few individuals in the VCF have a "B" appended to the end of their PID! Modify these in the PED file:
+
+```{r}
+#These IDs in VCF contain a B, so we edit them in PED
+pids.to.edit <-setdiff(ped$pid,vcf.pid)
+pids.to.edit
+
+#Remember to change the fatid and motid as well!
+ped <- ped %>%
+        mutate(pid =  ifelse(pid %in% pids.to.edit,
+               paste0(pid,"B"),pid)) %>%
+        mutate(fatid =  ifelse(fatid %in% pids.to.edit,
+                             paste0(fatid,"B"), fatid)) %>%
+        mutate(motid =  ifelse(motid %in% pids.to.edit,
+                             paste0(motid,"B"), motid))
+```
+
+One last check to make sure all the PIDs match:
+
+```{r}
+setdiff(vcf.pid,ped$pid)
+setdiff(ped$pid,vcf.pid)
+```
+
+Remember to check that the `fatid` and `motid` entries are present in the list of `pid` as well. Note that so `setdiff` should return `"0"` here, instead of `character(0)`, since rows for the parents will have a `"0"` in their `fatid` and `motid` columns, which is not in the list of `pid`.
+```{r}
+setdiff(ped$fatid,ped$pid)
+setdiff(ped$motid,ped$pid)
+```
+
+## Write out
+```{r,eval = FALSE}
+filepath.ped.cleaned<-"your filepath here"
+write.table(ped, filepath.ped.cleaned, sep=" ", col.names = TRUE, row.names = FALSE,quote = FALSE)
+```
+
+# Checking for Mendelian errors
+
+Mendelian errors can be identified with the `trio.check` function in `trio`. `trio` can only read in `"0/0"`, `"0/1"`, or `"1/1"`, so we must reformat the VCF to use `trio.check`.
+
+```{r,eval = FALSE}
+#Replace '|' with '/'
+geno(vcf)$GT<-gsub("\\|", "\\/",geno(vcf)$GT)
+
+#Replace '0/1' with '0/1'
+geno(vcf)$GT[geno(vcf)$GT == "1/0"]<-"0/1"
+```
+
+## Calculate Mendelian errors in each family
+To test for Mendelian errors, we will first need to convert the VCF to `trio` `geno` format:
+
+```{r,eval = FALSE}
+trio.geno<-vcf2geno(vcf,ped)
+trio.geno[1:5,1:5]
+```
+```{r,echo = FALSE}
+filepath.trio.geno<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/trio.geno.output.RDS"
+trio.geno<-readRDS(filepath.trio.geno)
+trio.geno
+```
+
+Now we can run `trio::trio.check` to check for Mendelian errors:
+
+```{r,eval = FALSE}
+trio.tmp <- trio::trio.check(dat=trio.geno,is.linkage=FALSE)
+#takes a long time to run!
+
+#This code will not run if there are no Mendelian errors
+mend.err.sorted<-as.data.frame(sort(table(trio.tmp$errors$famid),
+                                    decreasing = TRUE))
+colnames(mend.err.sorted)<-c("famid","mend.errors")
+mend.err.sorted[1:10,]
+```
+
+```{r,echo = FALSE, eval=FALSE}
+filepath.trio.tmp.errors<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/"
+trio.tmp<-readRDS(filepath.trio.tmp.errors)
+
+mend.err.sorted<-as.data.frame(sort(table(trio.tmp$errors$famid),decreasing = TRUE))
+colnames(mend.err.sorted)<-c("famid","mend.errors")
+mend.err.sorted[1:10,]
+```
+```{r,echo = FALSE}
+filepath.mend.err.sorted<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/mend.err.sorted.RDS"
+
+mend.err.sorted<-readRDS(filepath.mend.err.sorted)
+mend.err.sorted[1:10,]
+```
+### Graph Mendelian errors per family
+
+```{r}
+ggplot(mend.err.sorted, aes(x=famid,y=mend.errors)) +
+        geom_bar(stat="identity") +
+        xlab("Family ID") + ylab("Mendelian error count") +
+        theme(axis.text.x=element_blank(),
+              axis.ticks.x=element_blank()
+              )
+```
+
+### Graph Mendelian errors per family at the extreme end
+We'll graph the families with the 20 highest number of errors to examine the extreme end:
+```{r}
+ggplot(mend.err.sorted[1:20,], aes(x=famid,y=mend.errors)) +
+        geom_bar(stat="identity") +
+        xlab("Family ID") + ylab("Mendelian error count") +
+        theme(axis.text.x=element_text(angle = 90)
+        )
+```
+
+There are 5 families with considerably more Mendelian errors than the rest. We will need to remove them in both the VCF and in the PED file.
+
+### Remove families with high number of Mendelian errors in PED file
+
+Remove the individuals in the PED file, and write it out:
+
+```{r,eval = FALSE}
+#Remove families with large number of Mendelian errors from PED
+filepath.ped<-"/users/lgai/8q24_project/data/processed_data/gmkf_euro_completetrios_07_01_2019.txt"
+ped <- read.table(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
+```
+```{r}
+#Check how many families there are in the raw PED
+dim(ped)
+
+#Get the famids of the families to be removed
+fam.rm<-as.character(mend.err.sorted[1:5,1])
+fam.rm
+
+#Get the PIDs of the individuals in the families to be removed
+pid.rm <- ped %>%
+        filter(famid %in% fam.rm)
+head(pid.rm)
+dim(pid.rm)
+
+#NOTE: select can be masked
+pid.rm %>% select(pid)
+
+new.ped <- ped %>%
+        filter(!(famid %in% fam.rm))
+```
+
+### Remove families with high number of Mendelian errors in VCF file
+
+Now we need to remove the individuals in the VCF. First we get a character vector of all the pids we want to keep:
+
+```{r}
+pids.to.keep <- ped %>%
+        filter(!pid %in% pid.rm$pid) %>%
+        select(pid) %>%
+        lapply(as.character) %>%
+        unlist
+
+length(pids.to.keep)
+```
+
+#### Creating the cleaned VCF
+
+We use the `param` argument in `readVcf()` to filter the phased VCF to only the PIDs from families without a large number of Mendelian errors.
+
+```{r,eval = FALSE}
+
+filepath.formatted.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.cleaned.07_1_19.phased.formatted.vcf"
+hg.assembly<-"hg19"
+
+vcf <- VariantAnnotation::readVcf(filepath.formatted.vcf, hg.assembly,
+                                  param = ScanVcfParam(sample = pids.to.keep),
+)
+
+filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_25_19.vcf"
+writeVcf(vcf,filepath.common.vcf)
+```
+
+# Summary
+Once you have gone through this workflow, you should have the following files:
+
+1. PED file 
+    + all PIDs are present in VCF file and vice versa
+    + families with large numbers of Mendelian errors are removed
+    + contains 6 tab-delimited columns, in the following order:
+        1. **famid** - family ID
+        2. **pid** - personal ID unique to every individual in the data set
+        3. **fatid** - father ID (only available for child cases)
+        4. **motid** - mother ID (only available for child cases)
+        5. **sex** - 1 if individual is male, 0 for female
+        6. **affected** - 1 if individual is affected, 0 for unaffected
+   
+        
+2. VCF file
+    + all PIDs in VCF are present in PED file and vice versa
+    + families with large numbers of Mendelian errors are removed
+    + genotype entries are in `"0/0"`, `"1/0"`, or `"1/1"` format
+    + some `NA` values are OK (?)
+        
+Now you are ready to go through the [trio analysis workflow](link)!
+
+# Troubleshooting
+
+## vcf2geno() returns 'Subscript out of bounds` error
+
+Check the type of the `pid`, `famid`, `motid`, or `fatid` variables in the PED. You can do this using
+
+```{r}
+typeof(ped$pid)
+```
+
+They should be `character` vectors. If they are `factor` or `numeric` vectors, `vcf2geno` will throw this error. You can fix this using
+
+```{r, eval=FALSE}
+ped$pid <- as.character(ped$pid)
+```
+
+Repeat this as needed for the other columns.

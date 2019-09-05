@@ -1,0 +1,673 @@
+---
+title: "Trio analysis for common and rare variants"
+author:
+- name: Linda Gai
+  affiliation: Johns Hopkins School of Public Health
+  email: lindagai@jhu.edu
+output:
+  BiocStyle::html_document
+abstract: |
+  Workflow for trio analysis for common and rare variants.
+vignette: |
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+# Introduction
+
+In this workflow, we will perform an example trio analysis on a small dataset of case-parent trios, that have been cleaned and phased. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the [cleaning trio data workflow](link) is highly recommended.
+
+We first perform common variants analysis using the `trio` package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results. 
+
+We use case-parent trios of cleft palate data from Kids First as an example.
+
+# Setup
+## R packages
+
+This workflow uses the following R packages:
+
+```{r,eval=FALSE}
+#Bioconductor
+library(VariantAnnotation)
+library(trio)
+library(TVTB)
+library(GViz)
+
+#CRAN
+library(dplyr)
+library(ggplot2)
+library(rvTDT)
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+If you do not have them, run the following code:
+
+```{r,eval = FALSE}
+#Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager")
+BiocManager::install("VariantAnnotation", "trio", "TVTB", "GViz")
+
+#CRAN
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("rvTDT")
+```
+
+## External software for preparing the dataset
+
+### RV-TDT
+
+RV-TDT can be installed and run on Linux and Mac OS X. Download the source code from Github [here](https://github.com/statgenetics/rv-tdt) and follow the directions to install RV-TDT.
+
+You will need to give the filepath to RV-TDT to use the R wrapper function `RV_TDT` in `rvtrio`. To install rvtrio, run the following code:
+
+```{r,eval = FALSE}
+devtools::install_github("lindagai/rvtrio")
+library(rvtrio)
+```
+
+Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
+
+### Annotation information
+
+To improve the power of statistical tests for rare variant analysis, it is often helpful to reduce the set of variants tested to those that are more likely to be disease-causing by using annotation information (e.g., we might filter our dataset to include variants that result in early stop codons, or have high functional annotation scores, since these variants are more likely to be disease-causing).
+
+In this workflow, we are using ANNOVAR as the main source of functional annotation information, although many other resources exist; we describe some below.
+
+#### **ANNOVAR** 
+
+ANNOVAR is a software tool for annotating genetic variants, which can be downloaded from their website [here](http://annovar.openbioinformatics.org/en/latest/). ANNOVAR will produce a .txt report with functional annotation scores, positions with stop-codons, which can then be used to filter the VCF to potentially causal variants prior to rare variant analysis.
+
+In this workflow, we use an ANNOVAR Report in .txt format based on hg19, for chromosome 8, that can be found here:
+
+```{r,eval = FALSE}
+"/dcl01/beaty/data/gmkf/euro/anno/ANNOVAR_Uploaded/fullannot.gmkf.snvs.c8.T3.ss_ANNOVAR_REPORT.txt"
+```
+
+#### Additional sources of annotation information.
+Although a walkthrough of these methods is beyond the scope of these workflow, Bioconductor also has additional packages for filtering VCFs using annotation information with excellent walkthroughs, notably [AnnotationHub](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) and [TVTB](https://bioconductor.org/packages/release/bioc/vignettes/TVTB/inst/doc/Introduction.html). 
+
+### vcftools
+
+This workflow uses vcftools to filter a VCF to rare variants only and to remove monomorphic SNPs.
+
+JHPCE already has vcftools available on the cluster, and it can be accessed by entering the following in Terminal:
+
+```{r,eval = FALSE}
+#In Terminal, not in R
+module load vcftools
+```
+
+
+### Haplotype phasing
+
+Sequence and SNP array data generally take the form of unphased genotypes (i.e., we do not know which alleles are on the same haplotype). You will need to phase the dataset to use most rare variant analysis methods, because the calculating the estimates requires knowing which parent transmitted which alleles to the child.
+
+For trio data, we recommend using [BEAGLE 4.0](https://faculty.washington.edu/browning/beagle/b4_0.html) to phase, since it accounts for family information in phasing. It can be downloaded directly in the R console using the code chunk below:
+
+```{r,eval = FALSE}
+filepath.beagle4<-"filepath/where/you/want/beagle4/to/go/here"
+dl.beagle4<-paste0("wget -O ",filepath.beagle4," https://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
+system(dl.beagle4)
+```
+
+As of May 2019, newer versions of BEAGLE (4.1 or 5.0) do not account for family structure and should be avoided for case-parent trio data.
+
+# Common variants analysis {#test1}
+
+In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the [`trio` package](https://www.bioconductor.org/packages/release/bioc/html/trio.html). `trio` accepts both PLINK ped files and VCF files. Scan-Trio is part of the `rvtrio` package and is currently in development.
+
+## Select the genomic region you would like to analyze
+
+A subset of a Tabix-indexed VCF can be read in using `VariantAnnotation`’s `filterRules`. An intuitive subset to start with might be a candidate gene. Here, we will read in the 8q24 region:
+
+```{r, eval=FALSE}
+#8q24 is chr8:139864393-141031612
+rng <- GRanges(seqnames="chr8",
+               ranges=IRanges(
+                       start=c(139864393),
+                       end=c(141031612)
+               )
+)
+
+tab <- TabixFile(fp.vcf)
+hg<-"hg38"
+
+vcf.rng <- readVcf(tab, hg, param=rng)
+
+table(geno(vcf.rng)$GT)
+#    ./.     0/0     0/1     1/1
+#  14197 9216285  709521  432362
+```
+
+## Create a trio geno matrix
+
+We begin by creating a `trio geno` object from a clean PED and VCF file:
+
+1. PED file 
+
+    + all PIDs are present in VCF file and vice versa
+    + families with large numbers of Mendelian errors are removed
+    + contains 6 tab-delimited columns, in the following order:
+        1. **famid** - family ID
+        2. **pid** - personal ID unique to every individual in the data set
+        3. **fatid** - father ID (only available for child cases)
+        4. **motid** - mother ID (only available for child cases)
+        5. **sex** - 1 if individual is male, 0 for female
+        6. **affected** - 1 if individual is affected, 0 for unaffected
+        
+```{r, eval=FALSE}
+filepath.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
+ped <- read.table(filepath.ped,header=FALSE)
+head(ped)
+```
+```{r, echo=FALSE}
+filepath.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
+ped <- read.table(filepath.ped,header=FALSE)
+colnames(ped) <- c( "famid", "pid", "fatid", "motid", "sex","affected")
+head(ped)
+```
+
+2. VCF file for common variants analysis
+
+    + all PIDs in VCF are present in PED file and vice versa
+    + families with large numbers of Mendelian errors are removed
+    + genotype entries are in `"0/0"`, `"1/0"`, or `"1/1"` format; missing data is indicated by an `NA`
+    
+```{r, eval=FALSE}
+filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_25_19.vcf"
+hg.assembly<-"hg19"
+table(geno(vcf)$GT)
+```
+
+The `geno` object can be created using the `vcf2geno` function.
+```{r, eval=FALSE}
+trio.geno <- trio::vcf2geno(vcf,ped)
+```
+```{r,echo = FALSE}
+filepath.geno<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_trio_geno_07_31_19.RDS"
+trio.geno<-readRDS(filepath.geno)
+```
+It is recommended to limit the common variants analysis to common variants, i.e. SNPs with MAF > 0.05:
+
+```{r}
+trio.geno <- trio::removeSNPs(trio.geno, maf = 0.05)
+```
+
+The geno matrix itself is a matrix, which has:
+
+1. $3n$ rows, where $n$ = number of trios, where each row contains all the genotypes for a particular individual
+
+2. $p$ columns, where $p$ = number of genomic sites under examination. Each entry is a `"0"`, `"1"`, or `"2"` (i.e., the number of minor alleles) at a particular genomic site.
+
+Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.
+
+```{r}
+trio.geno[1:5,1:5]
+```
+
+Note that the `geno` object may take a long time to load, so you may want to save it.
+```{r, eval=FALSE}
+filepath.trio.geno<-"/users/lgai/8q24_project/data/processed_data/trio_tdt_format/8q24_trio_geno_07_019_19.RDS"
+saveRDS(trio.geno, filepath.trio.geno)
+```
+
+## Genotypic TDT
+
+The genotypic TDT is strongly recommended over the the allelic TDT, as the genotypic TDT can directly model the relative risk of disease, can be modified to account for additive, dominant, or recessive modes of inheritance, and can be modified to test for gene-environment interaction. In contrast, the allelic TDT can only report whether an allele is significant or not and must assume a multiplicative genetic model.
+
+We demonstrate the gTDT for the additive model below. To use an alternative model, simply type in `"dominant"` or `"recessive"` instead of `"additive"`.
+
+```{r, eval=FALSE}
+#This also takes awhile, you may want to save it
+gTDT.results<-trio::tdt(trio.geno, model = c("additive"))
+gTDT.results
+```
+```{r,echo = FALSE}
+filepath.gTDT.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_gTDT_07_31_19.RDS"
+gTDT.results<-readRDS(filepath.gTDT.results)
+gTDT.results
+```
+
+```{r}
+#Create dataframe of genotypic TDT p-values and snp_names
+gTDT.df <- data.frame(
+        names(gTDT.results$pval),
+        gTDT.results$stat, 
+        gTDT.results$pval
+        )
+colnames(gTDT.df)<-c("snp","stat","pval")
+
+gTDT.df <- gTDT.df %>% 
+  arrange(pval) %>% 
+  mutate(neglogp = -log(pval)) 
+
+gTDT.df %>% head
+```
+
+## Allelic TDT
+
+If desired, the aTDT can also be performed by trio. As of July 2019, the aTDT is considerably more popular than the gTDT (possibly because it is implemented in the popular PLINK software). In most cases, the aTDT and gTDT report similar results, but the gTDT has better statistical properties (citation).
+
+```{r, eval=FALSE}
+aTDT.results<-allelicTDT(trio.geno)
+```
+```{r,echo = FALSE}
+filepath.aTDT.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_aTDT_07_31_19.RDS"
+aTDT.results<-readRDS(filepath.aTDT.results)
+aTDT.results
+```
+```{r}
+#Create dataframe of allelic TDT p-values and snp_names
+aTDT.df<-as.data.frame(cbind(aTDT.results$stat,aTDT.results$pval))
+colnames(aTDT.df)<-c("stat","pval")
+
+aTDT.df <- aTDT.df %>%
+  arrange(pval) %>% 
+  mutate(neglogp = -log10(pval))
+
+aTDT.df %>% head
+```
+
+
+## Scan-Trio
+
+```{r, eval=FALSE}
+#in progress!
+```
+
+## Visualization
+Basic Manhattan plots can be created with `ggplot2`. First, we must extract the position information from the VCF files, as the `trio` `geno` matrix does not contain position information.
+
+### Extracting position and SNP IDs from the VCF
+To get the genomic positions associated with each SNP quickly, we will specify that we only need to read in the FIXED field from the VCF, using `VariantAnnotation`'s `ScanVcfParam` object:
+
+```{r, eval=FALSE}
+filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_30_19.vcf"
+
+## Return CHROM, POS, ID and REF from 'fixed' field
+# do not read in other fields
+svp <- ScanVcfParam(fixed="NA", info="NA", geno="NA")
+vcf.svp <- readVcf(filepath.common.vcf, "hg19", svp)
+
+snp<-names(vcf.svp)
+pos<-start(rowRanges(vcf.svp))
+snp.pos.df<-data.frame(snp,pos)
+head(snp.pos.df)
+```
+```{r,echo = FALSE}
+filepath.snp.pos.df<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_snp.pos.df_07_31_19.RDS"
+snp.pos.df<-readRDS(filepath.snp.pos.df)
+head(snp.pos.df)
+head(gTDT.df)
+```
+
+We now merge the SNP/POS dataframe with the dataframe of results from aTDT and gTDT, so that we can create Manhattan plots. We use `dplyr::left_join` to only keep the position information of the SNPs present in the aTDT and gTDT results.
+
+```{r, warning=FALSE}
+gTDT.df<- left_join(gTDT.df,snp.pos.df)
+head(gTDT.df)
+
+aTDT.df <- data.frame(gTDT.df[,c("snp","pos")], aTDT.df)
+head(aTDT.df)
+```
+
+If you plan to do rare variants analysis, save these results so that you can compare the common variants analysis to the rare variants analysis results.
+
+```{r, eval=FALSE}
+filepath.aTDT.df<-"/where/you/want/aTDT/results/to/go"
+saveRDS(aTDT.df, filepath.aTDT.results)
+
+filepath.gTDT.df<-"/where/you/want/gTDT/results/to/go"
+saveRDS(gTDT.df, filepath.gTDT.results)
+```
+
+### gTDT
+
+```{r}
+ggplot(gTDT.df)+
+  geom_point(aes(x=pos,y=neglogp)) +
+  labs(title="Genotypic TDT results",
+       x="SNP position", y = "-log10p")
+```
+
+### aTDT
+```{r}
+ggplot(aTDT.df)+
+  geom_point(aes(x=pos,y=neglogp)) +
+  labs(title="Allelic TDT results",
+       x="SNP position", y = "-logp")
+```
+
+### Scan-Trio
+### Comparison across methods
+
+# Rare variants analysis
+## Types of filtering
+To enrich rare variant signal, it is often helpful to filter the dataset under analysis to probable causal variants or candidate genes. Below we discuss a few types of filters you may consider:
+
+### Filtering by annotation information
+One way to enrich signal is to filter the variant set to probable causal variants, using annotation information. For example, one could filter the VCF using functional annotation scores like CADD, which measures "deleteriousness" by ; alternatively, one could choose variants that result in stop codons, etc.
+
+### Filter by position
+If you have a priori information on whether a particular genomic region is linked to an increase in disease risk, it can be wise to filter the set of variants using the position of the variant. For example, in the 8q24 region, previous work has shown that common variants in 129.9-130.1 Mb on genome build hg19 have been implicated in increasing cleft palate risk in European case-parent trios (citation). We replicated this finding in the common variants analysis section. Filtering to only the set of variants that is contained within this region, then, could be a good way to increase the proportion of probable causal variants in the test set.
+
+### Choosing a window size
+Another option to enrich signal is to adjust the window size (i.e., the number of "consecutive" markers in each test set). Disease-causing variants tend to be located relatively close together, compared to benign variants, so grouping together consecutive sets of variants is another option to aggregate together disease-risk from multiple variants (citation). The ideal size of the window can be selected on a priori knowledge and/or by trying multiple sizes. 
+
+For example, if you have already done a common variants analysis and discovered a region enriched with common variant signal, choosing a window size that contains the entire region could be a good idea. Another option would be to test windows of many sizes, ranging from 2-25 markers. Alternatively, one can just try many sizes and choose the window size -- in the original Scan-Trio paper (link), window sizes of 2-25 markers were tested.
+
+## Exploratory data analysis and filtering the VCF
+
+Prior to filtering, performing EDA on the annotation information on the region of interest will allow you to better select filters well-suited to your analysis.
+
+### Functional annotation scores
+
+First, we can examine annotation information for the variants in the dataset, using a .txt file from downloaded ANNOVAR. 
+
+```{r,eval = FALSE}
+filepath.annovar<-"/users/lgai/8q24_project/data/processed_data/annotation/fullannot.gmkf.snvs.8q24.T3.ss_ANNOVAR_REPORT.txt"
+
+annovar<-read.table(filepath.annovar, sep="\t", quote ="", 
+                    header=TRUE, stringsAsFactors=FALSE)
+```
+
+We can subset the ANNOVAR to just the positions in our dataset:
+```{r,eval = FALSE}
+#Get the positions in the VCF by reading in minimal VCF with svp
+svp <- ScanVcfParam(fixed="NA", info="NA", geno="NA")
+filepath.rare.vcf<-"./data/processed_data/vcfs/8q24.16snp.rarevar.08_19_19.recode.vcf"
+vcf.svp <- readVcf(filepath.rare.vcf, "hg38", svp)
+snp<-names(vcf.svp)
+pos<-start(rowRanges(vcf.svp))
+
+#Subset the ANNOVAR to the positions in the VCF
+annovar <- annovar %>% filter(StartPosition %in% pos)
+
+#Complete ANNOVAR is large, so let's delete it
+rm(annovar)
+#Complete VCF is large, so let's delete it
+rm(vcf.svp)
+```
+
+To examine the variables available:
+```{r,eval = FALSE}
+#View column names
+colnames(annovar)
+```
+
+Looking at the list of column names, we can choose the following list of variables as containing potentially interesting annotation information:
+
+```{r,eval = FALSE}
+sm.annovar<-annovar %>%
+  dplyr::select("StartPosition",
+         "EndPosition",
+         "ReferenceAllele",
+         "AlternativeAllele",
+         "Genotype",
+         "Quality",
+         "TotalDepth",
+         "Score_Ljb_phylop",
+         "Score_Ljb_pp2hdiv",
+         "Score_Ljb_pp2hvar",
+         "SiftScore",
+         "CADDgt20",
+         "WG_GWAVA_score",
+         "WG_EIGEN_score"
+  )
+  
+```
+  
+Now we can examine the functional annotation scores to see which have useful entries.
+
+```{r,eval = FALSE}
+#Calculate percent-missingness in each annotation score
+sm.annovar  %>%
+        dplyr::select(
+                "Score_Ljb_pp2hdiv",
+                "Score_Ljb_pp2hvar",
+                "SiftScore",
+                "CADDgt20",
+                "WG_GWAVA_score",
+                "WG_EIGEN_score") %>%
+        summarise_each(funs(100*mean(is.na(.))))
+
+#Select functional annotation scores to examine
+sm.annovar  %>%
+        dplyr::select(
+         "Score_Ljb_pp2hdiv",
+         "Score_Ljb_pp2hvar",
+         "SiftScore",
+         "CADDgt20",
+         "WG_GWAVA_score",
+         "WG_EIGEN_score"
+        ) %>%
+        lapply(range, na.rm=TRUE)
+```
+
+Here, we will choose to filter based on CADD, GWAVA, and EIGEN scores:
+
+```{r,eval = FALSE}
+sm.annovar<- sm.annovar %>%
+        dplyr::select(
+         "EndPosition",
+         "ReferenceAllele",
+         "AlternativeAllele",
+         "Genotype",
+         "Quality",
+         "TotalDepth",
+         "CADDgt20",
+         "WG_GWAVA_score",
+         "WG_EIGEN_score"
+```
+
+Examining the literature for [CADD](https://academic.oup.com/nar/article/47/D1/D886/5146191#129633560), [GWAVA](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5015703/), and [EIGEN](https://biodatamining.biomedcentral.com/articles/10.1186/s13040-018-0179-3), we can find that the recommended score cut-offs for functional variants are >10, >0.5, and 0, respectively (NOTE: check EIGEN and cite these properly later):
+
+So now we can filter to those sites:
+
+```{r,eval = FALSE}
+sm.annovar<- sm.annovar %>%
+  filter(CADDgt20 > 10 | WG_GWAVA_score > 0.5 | WG_EIGEN_score > 0)
+  
+#How many positions are left?
+annovar.filtered %>% nrow
+```
+
+### Common variant signal
+As we showed in [Section 3](#test1), the region in 129.9-130.1 Mb on genome build hg19 appears to be linked to an increased risk of cleft palate using all 3 common variants test.
+
+If desired, we could subset the ANNOVAR further to the region within the area of peak common variant signal:
+
+```{r,eval = FALSE}
+a<-129875000
+b<-130000000
+
+annovar.filtered.peak <- annovar.filtered %>%
+        filter(StartPosition > a & StartPosition < b)
+
+#How many positions are left?
+annovar.filtered.peak %>% nrow
+```
+
+### Save ANNOVAR as a list of positions to filter to in VCF
+Finally, we can save the reduced ANNOVAR file that only contains positions that we are interested in testing.
+
+```{r,eval = FALSE}
+filepath.sm.annovar<-"where/you/want/annovar/to/be.txt"
+write.table(sm.annovar, filepath.sm.annovar, sep="\t",row.names = FALSE,quote = FALSE)
+```
+
+### Filter VCF
+First, we filter the VCF to contain only variants with an MAF < 0.01, and remove monomorphic SNPs. To do this, we use vcftools:
+
+```{r,eval = FALSE}
+#In Terminal, not in R
+module load vcftools
+vcftools --vcf ./data/processed_data/your.vcf --max-maf 0.01 --non-ref-ac-any 1 --recode --out ./data/processed_data/vcfs/your.rarevar.filename
+```
+
+Secondly, we can optionally filter the VCF to contain only the positions that are in the ANNOVAR:
+
+```{r,eval = FALSE}
+filepath.sm.annovar<-"where/you/want/annovar/to/be.txt"
+annovar<-read.table(filepath.sm.annovar,sep="\t",header=TRUE, quote ="")
+vcf<-vcf[which(start(rowRanges(vcf)) %in% annovar$StartPosition),]
+```
+
+## Phasing
+
+Haplotype phasing allows us to identify the alleles that are co-located on the same chromosome in 1 individual (an excellent overview of the process can be found [here](https://data-science-sequencing.github.io/Win2018/lectures/lecture10/)), in addition to imputing missing genotypes and alleles. Most of the rare variant analysis methods used here require the data to be phased for the variants to be weighted appropriately, so phasing is generally recommended. 
+
+Note that phasing takes a long time, so it is often preferable to do filtering steps prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences for missing observations, so there may be some benefits to phasing a whole gene at a time, as opposed to a collection of SNPs that are not necessarily close to one another.
+
+### Phasing the dataset
+
+Phasing can be done in the R console with the below code. For the 8q24 file (~4.4 MB), phasing takes approximately 45 minutes.
+
+```{r,eval = FALSE}
+phase.command<-paste0("java -Xmx10000m -jar ", filepath.beagle4,
+                      " gt=",filepath.vcf,
+                      " ped=",filepath.ped,
+                      " out=",filepath.phased.vcf)
+phase.command
+
+system(phase.command)
+```
+
+
+## Analysis methods
+
+Now we can finally start doing some rare variant analysis! We first read in the filtered VCF with monomorphs removed, along with its cleaned PED:
+
+```{r,eval = FALSE}
+filepath.vcf<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24.cleaned.phased.filtered.annotation.rarevar.monomorphs.removed.recode.vcf"
+filepath.vcf.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
+
+ped<-read.table(filepath.vcf.ped,header=FALSE)
+vcf<-VariantAnnotation::readVcf(filepath.vcf, "hg19")
+```
+
+### RV-TDT
+
+RV-TDT can be run on both the entire VCF at once -- this gives you one "window" that contains all the SNPs in the VCF.
+
+```{r,eval = FALSE}
+#Run on the entire VCF (i.e. 1 window)
+RV_TDT.results<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped,
+                               rv.tdt.dir = filepath.to.RV_TDT)
+```
+
+It can also be run on sliding windows containing a user-specified number of markers -- here, we'll use 25 markers as an example. 
+
+```{r,eval = FALSE}
+#Run RV-TDT on 25-marker windows
+RV_TDT.results.25M.windows<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped, rv.tdt.dir = filepath.to.RV_TDT,window.size=25, upper_cutoff=0.01)
+head(RV_TDT.results.25M.windows)
+```
+```{r,echo = FALSE}
+filepath.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/example/RV_TDT.results.25M.windows.txt"
+RV_TDT.results<-read.table(filepath.results,sep="\t",header=TRUE, quote ="")
+head(RV_TDT.results)
+```
+
+### rvTDT
+
+```{r}
+#wrapper functions in progress
+```
+
+### Scan-Trio
+
+```{r}
+#wrapper functions in progress
+```
+
+## Visualization
+#### RV-TDT
+
+To graph RV-TDT results for multiple windows, it must be converted into long format. That is, each row represents a window tested by a specific test in RV-TDT, and `test` is a column indicating which RV-TDT was performed.
+
+```{r}
+n.windows<-nrow(RV_TDT.results)
+
+#Convert to long format
+RV_TDT.results.long <- RV_TDT.results %>%
+        tidyr::gather(key = test, value = pval,
+        CMC.Analytical,BRV.Haplo,CMC.Haplo,VT.BRV.Haplo,VT.CMC.Haplo,WSS.Haplo)
+
+RV_TDT.results.long %>% head
+```
+
+As we are testing multiple windows, we need to perform a Bonferonni correction on the significance level, shown in the graph below.
+
+```{r}
+#Bonferroni corrected
+bonferroni.sig.level <- -log10(0.05/n.windows)
+
+#Plot
+ggplot() +
+  geom_line(data = RV_TDT.results.long, aes(group=test, color = test,
+                               x = mid.window.pos, y = -log10(pval)))+
+    geom_hline(yintercept=bonferroni.sig.level, linetype=2, color = "red", size=2) +
+    labs(title='RV-TDT results for window size = 25 SNPs, 24 SNP overlap',
+         x ='Position (hg19)', y = '-log10p-value at center of window')+
+    guides(color=guide_legend("RV-TDT test type")) +
+  scale_linetype_manual(name = "Bonferroni-corrected significance", values = 2,
+                        guide = guide_legend(override.aes = list(color = c("red"))))
+```
+
+#### rvTDT
+
+```{r}
+#wrapper functions in progress
+```
+
+#### Scan-Trio
+```{r}
+#wrapper functions in progress
+```
+
+### Comparison across methods
+#### GViz
+*GViz* is a popular package to visualize genomics results.
+
+
+
+
+<!-- ## snp.plotter -->
+<!-- ## LocusZoom -->
+
+# Troubleshooting
+## RV-TDT
+
+### Segmentation fault
+Unsure -- in progress.
+
+### Cannot find file
+The input files for RV-TDT should be relative directories, not absolute directories. (But this shouldn't be a problem if you use the wrapper functions `rvtrio::RV_TDT`.)
+
+### Produces output file, but no results
+Possible explanations:
+
+1. **File sizes might be too large.**
+Generally, the tped file must be under 500 lines (i.e., only 500 SNPs can be analyzed at a time). Your windows may be too large -- try testing a smaller window size that contains fewer than 500 SNPs.
+
+2. **The whitespace is not tabs.**
+RV-TDT can only read in files that are tab-delimited. (But this shouldn't be a problem if you use the wrapper functions `rvtrio::RV_TDT`.)
+
+# Concluding remarks
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
