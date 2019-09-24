@@ -261,7 +261,7 @@ summary {
 <h1><span class="header-section-number">1</span> Introduction</h1>
 <p>In this workflow, we will perform an example trio analysis on a small dataset of case-parent trios, that have been cleaned and phased. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the <a href="link">cleaning trio data workflow</a> is highly recommended.</p>
 <p>We first perform common variants analysis using the <code>trio</code> package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results.</p>
-<p>We use case-parent trios of cleft palate data from Kids First as an example.</p>
+<p>Our example dataset consists of whole-genome-sequencing data from 265 cleft palate case-parent trios (795 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of Latino dataset, and the data has genome build hg38.</p>
 </div>
 <div id="setup" class="section level1">
 <h1><span class="header-section-number">2</span> Setup</h1>
@@ -328,13 +328,14 @@ system(dl.beagle4)</code></pre>
 </div>
 <div id="test1" class="section level1">
 <h1><span class="header-section-number">3</span> Common variants analysis</h1>
-<p>In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the <a href="https://www.bioconductor.org/packages/release/bioc/html/trio.html"><code>trio</code> package</a>. <code>trio</code> accepts both PLINK ped files and VCF files.</p>
+<p>In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the <a href="https://www.bioconductor.org/packages/release/bioc/html/trio.html"><code>trio</code> package</a>. <code>trio</code> accepts both PLINK ped files and VCF files, but we will use VCF files for this workflow.</p>
 <div id="select-the-genomic-region-you-would-like-to-analyze" class="section level2">
 <h2><span class="header-section-number">3.1</span> Select the genomic region you would like to analyze</h2>
-<p>A subset of a Tabix-indexed VCF can be read in using <code>VariantAnnotation</code>’s <code>filterRules</code>. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene. Here, we will read in a small part of the 8q24 region, a gene desert that contains many regulatory regions:</p>
+<p>A subset of a Tabix-indexed VCF can be read in using <code>VariantAnnotation</code>’s <code>param</code> parameter. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene.</p>
+<p>In the code below, we demonstrate how to read in a particular region of interest (hg38:141000000-141030000).</p>
 <pre class="r"><code>#BGZip and Tabix index the file first
-fp.vcf &lt;- &quot;./data/raw_data/8q24.hg38.vcf&quot; 
-fp.vcf.bgz &lt;- &quot;./data/raw_data/8q24.hg38.vcf.bgz&quot;
+fp.vcf &lt;- &quot;./data/raw_data/8q24.small.test.vcf&quot; 
+fp.vcf.bgz &lt;- &quot;./data/raw_data/8q24.small.test.vcf.bgz&quot;
 
 fp.zipped &lt;- bgzip(fp.vcf, fp.vcf.bgz)
 fp.indexed.tabix &lt;- indexTabix(fp.zipped, format = &quot;vcf&quot;)
@@ -356,6 +357,8 @@ vcf.rng &lt;- readVcf(fp.tabix, hg.assembly, param=rng)
 table(geno(vcf.rng)$GT)
 
 #Write out small region of interest
+#The entire VCF is contained within the region of interest
+# so it's the same file and we do not change the filename
 filepath.common.vcf&lt;-&quot;./data/processed_data/8q24.small.test.vcf&quot;
 writeVcf(vcf.rng,filepath.common.vcf)</code></pre>
 </div>
@@ -423,7 +426,7 @@ table(geno(vcf)$GT)</code></pre>
 <li><p><span class="math inline">\(p\)</span> columns, where <span class="math inline">\(p\)</span> = number of genomic sites under examination. Each entry is a <code>&quot;0&quot;</code>, <code>&quot;1&quot;</code>, or <code>&quot;2&quot;</code> (i.e., the number of minor alleles) at a particular genomic site.</p></li>
 </ol>
 <p>Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.</p>
-<p>The <code>geno</code> object can be created using the <code>vcf2geno</code> function. Note that SNPs with missing entries (<code>.\.</code>) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.</p>
+<p>The <code>geno</code> object can be created using the <code>vcf2geno</code> function. Note that SNPs with missing entries (<code>./.</code>) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.</p>
 <pre class="r"><code>trio.geno &lt;- trio::vcf2geno(vcf,ped)</code></pre>
 <pre><code>## Warning in trio::vcf2geno(vcf, ped): Since 120 of the SNVs show other/addtional genotypes than/to
 ## the ones specified by none, one, and both, these SNVs are removed.</code></pre>
@@ -448,18 +451,24 @@ table(geno(vcf)$GT)</code></pre>
 <p>248 SNPs remain.</p>
 <div id="optional-imputing-missing-snp-genotypes" class="section level4">
 <h4><span class="header-section-number">3.2.3.1</span> Optional: Imputing missing SNP genotypes</h4>
-<p>If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF using BEAGLE 4.0, which can be installed by following the directions in <a href="###%20Haplotype%20phasing">Section 2.1.2</a> and can be run by following the directions in <a href="##%20Phasing">Section 5</a>. Then re-create the <code>geno</code> matrix after the missing observations have been imputed.</p>
-<p>If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: <code>trio</code> can only read in genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, or <code>&quot;1/1&quot;</code>, whereas a BEAGLE-phased VCF will contain genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, <code>&quot;1/0&quot;</code>, and <code>&quot;1/1&quot;</code>.</p>
+<p>If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF by phasing it using BEAGLE 4.0, which can be installed by following the directions in <a href="###%20Haplotype%20phasing">Section 2.1.2</a> and can be run by following the directions in <a href="##%20Phasing">Section 5</a>. Then re-create the <code>geno</code> matrix after the missing observations have been imputed, and follow the directions for common variant testing below.</p>
+<p>If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: <code>trio</code> can only read in genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, or <code>&quot;1/1&quot;</code>, whereas a BEAGLE-phased VCF will contain genotype entries <code>&quot;0|0&quot;</code>, <code>&quot;0|1&quot;</code>, <code>&quot;1|0&quot;</code>, and <code>&quot;1|1&quot;</code>.</p>
 <p>You can do this using the following code:</p>
-<pre class="r"><code>#Replace '|' with '/'
-geno(vcf)$GT&lt;-gsub(&quot;\\|&quot;, &quot;\\/&quot;,geno(vcf)$GT)
+<pre class="r"><code>phased.vcf &lt;- readVcf(fp.phased.vcf, hg.assembly)
+
+#Replace '|' with '/'
+geno(phased.vcf)$GT&lt;-gsub(&quot;\\|&quot;, &quot;\\/&quot;,geno(phased.vcf)$GT)
 
 #Replace '0/1' with '0/1'
-geno(vcf)$GT[geno(vcf)$GT == &quot;1/0&quot;]&lt;-&quot;0/1&quot;</code></pre>
+geno(phased.vcf)$GT[geno(phased.vcf)$GT == &quot;1/0&quot;]&lt;-&quot;0/1&quot;
+
+#Write out the phased VCF
+filepath.phased.common.var.vcf&lt;-&quot;./data/processed_data/phased.common.var.vcf&quot;
+writeVcf(phased.vcf,filepath.phased.common.var.vcf)</code></pre>
 </div>
 <div id="remove-snps-with-maf-0.05" class="section level4">
 <h4><span class="header-section-number">3.2.3.2</span> Remove SNPs with MAF &gt; 0.05</h4>
-<p>It is recommended to limit the common variants analysis to common variants, i.e. SNPs with MAF &gt; 0.05:</p>
+<p>It is recommended to limit the common variants analysis to common variants, i.e. we filter out SNPs with MAF &lt; 0.05:</p>
 <pre class="r"><code>trio.geno &lt;- trio::removeSNPs(trio.geno, maf = 0.05)</code></pre>
 <p>Again, we check how many SNPs remain, using <code>dim</code>:</p>
 <pre class="r"><code>dim(trio.geno)</code></pre>

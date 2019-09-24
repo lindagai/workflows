@@ -113,12 +113,14 @@ In this workflow, we will consider 3 methods of common variant analysis: the all
 
 ## Select the genomic region you would like to analyze
 
-A subset of a Tabix-indexed VCF can be read in using `VariantAnnotation`’s `filterRules`. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene. Here, we will read in a small part of the 8q24 region, a gene desert that contains many regulatory regions:
+A subset of a Tabix-indexed VCF can be read in using `VariantAnnotation`’s `param` parameter. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene.
+
+In the code below, we demonstrate how to read in a particular region of interest (hg38:141000000-141030000).
 
 ```{r,eval = FALSE}
 #BGZip and Tabix index the file first
-fp.vcf <- "./data/raw_data/8q24.hg38.vcf" 
-fp.vcf.bgz <- "./data/raw_data/8q24.hg38.vcf.bgz"
+fp.vcf <- "./data/raw_data/8q24.small.test.vcf" 
+fp.vcf.bgz <- "./data/raw_data/8q24.small.test.vcf.bgz"
 
 fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
 fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
@@ -140,6 +142,8 @@ vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
 table(geno(vcf.rng)$GT)
 
 #Write out small region of interest
+#The entire VCF is contained within the region of interest
+# so it's the same file and we do not change the filename
 filepath.common.vcf<-"./data/processed_data/8q24.small.test.vcf"
 writeVcf(vcf.rng,filepath.common.vcf)
 ```
@@ -220,18 +224,24 @@ dim(trio.geno)
 
 #### Optional: Imputing missing SNP genotypes
 
-If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF using BEAGLE 4.0, which can be installed by following the directions in [Section 2.1.2](### Haplotype phasing) and can be run by following the directions in [Section 5](## Phasing). Then re-create the `geno` matrix after the missing observations have been imputed.
+If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF by phasing it using BEAGLE 4.0, which can be installed by following the directions in [Section 2.1.2](### Haplotype phasing) and can be run by following the directions in [Section 5](## Phasing). Then re-create the `geno` matrix after the missing observations have been imputed, and follow the directions for common variant testing below.
 
-If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: `trio` can only read in genotype entries `"0/0"`, `"0/1"`, or `"1/1"`, whereas a BEAGLE-phased VCF will contain genotype entries `"0/0"`, `"0/1"`, `"1/0"`, and `"1/1"`.
+If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: `trio` can only read in genotype entries `"0/0"`, `"0/1"`, or `"1/1"`, whereas a BEAGLE-phased VCF will contain genotype entries `"0|0"`, `"0|1"`, `"1|0"`, and `"1|1"`.
 
 You can do this using the following code:
 
-```{r}
+```{r, eval=FALSE}
+phased.vcf <- readVcf(fp.phased.vcf, hg.assembly)
+
 #Replace '|' with '/'
-geno(vcf)$GT<-gsub("\\|", "\\/",geno(vcf)$GT)
+geno(phased.vcf)$GT<-gsub("\\|", "\\/",geno(phased.vcf)$GT)
 
 #Replace '0/1' with '0/1'
-geno(vcf)$GT[geno(vcf)$GT == "1/0"]<-"0/1"
+geno(phased.vcf)$GT[geno(phased.vcf)$GT == "1/0"]<-"0/1"
+
+#Write out the phased VCF
+filepath.phased.common.var.vcf<-"./data/processed_data/phased.common.var.vcf"
+writeVcf(phased.vcf,filepath.phased.common.var.vcf)
 ```
 
 #### Remove SNPs with MAF > 0.05
