@@ -15,8 +15,7 @@ vignette: |
 ---
 
 ```{r,echo=FALSE, message=FALSE, warning=FALSE}
-library(dplyr)
-library(ggplot2)
+knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Research/workflows/trio analysis/")
 ```
 
 # Introduction
@@ -32,22 +31,17 @@ We use case-parent trios of cleft palate data from Kids First as an example.
 
 This workflow uses the following R packages:
 
-```{r,eval=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #Bioconductor
 library(VariantAnnotation)
 library(trio)
-library(TVTB)
-library(GViz)
+library(Gviz)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 
 #CRAN
 library(dplyr)
 library(ggplot2)
 library(rvTDT)
-```
-
-```{r,echo=FALSE, message=FALSE, warning=FALSE}
-library(dplyr)
-library(ggplot2)
 ```
 
 If you do not have them, run the following code:
@@ -56,7 +50,7 @@ If you do not have them, run the following code:
 #Bioconductor
 if (!requireNamespace("BiocManager", quietly = TRUE))
         install.packages("BiocManager")
-BiocManager::install("VariantAnnotation", "trio", "TVTB", "GViz")
+BiocManager::install(c("VariantAnnotation", "trio", "Gviz", "TxDb.Hsapiens.UCSC.hg38.knownGene"))
 
 #CRAN
 install.packages("dplyr")
@@ -64,7 +58,7 @@ install.packages("ggplot2")
 install.packages("rvTDT")
 ```
 
-## External software for preparing the dataset
+## External software required for rare variant analysis
 
 ### RV-TDT
 
@@ -98,21 +92,9 @@ In this workflow, we use an ANNOVAR Report in .txt format based on hg19, for chr
 #### Additional sources of annotation information.
 Although a walkthrough of these methods is beyond the scope of these workflow, Bioconductor also has additional packages for filtering VCFs using annotation information with excellent walkthroughs, notably [AnnotationHub](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) and [TVTB](https://bioconductor.org/packages/release/bioc/vignettes/TVTB/inst/doc/Introduction.html). 
 
-### vcftools
-
-This workflow uses vcftools to filter a VCF to rare variants only and to remove monomorphic SNPs.
-
-JHPCE already has vcftools available on the cluster, and it can be accessed by entering the following in Terminal:
-
-```{r,eval = FALSE}
-#In Terminal, not in R
-module load vcftools
-```
-
-
 ### Haplotype phasing
 
-Sequence and SNP array data generally take the form of unphased genotypes (i.e., we do not know which alleles are on the same haplotype). You will need to phase the dataset to use most rare variant analysis methods, because the calculating the estimates requires knowing which parent transmitted which alleles to the child.
+Prior to rare variant analysis, you will need to phase the dataset (i.e., identifying which alleles in each individual are located on the same chromosomes). For most rare variant methods, we need to know which parent transmitted which alleles to the child to calculate the test statistics.
 
 For trio data, we recommend using [BEAGLE 4.0](https://faculty.washington.edu/browning/beagle/b4_0.html) to phase, since it accounts for family information in phasing. It can be downloaded directly in the R console using the code chunk below:
 
@@ -130,32 +112,44 @@ In this workflow, we will consider 3 methods of common variant analysis: the all
 
 ## Select the genomic region you would like to analyze
 
-A subset of a Tabix-indexed VCF can be read in using `VariantAnnotation`’s `filterRules`. An intuitive subset to start with might be a candidate gene. Here, we will read in the 8q24 region:
+A subset of a Tabix-indexed VCF can be read in using `VariantAnnotation`’s `filterRules`. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene. Here, we will read in a small part of the 8q24 region, a gene desert that contains many regulatory regions:
 
-```{r, eval=FALSE}
-#8q24 is chr8:139864393-141031612
+```{r,eval = FALSE}
+#BGZip and Tabix index the file first
+fp.vcf <- "./data/raw_data/8q24.hg38.vcf" 
+fp.vcf.bgz <- "./data/raw_data/8q24.hg38.vcf.bgz"
+
+fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
+fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
+fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
+
+#Read in a small part of 8q24 region
 rng <- GRanges(seqnames="chr8",
                ranges=IRanges(
-                       start=c(139864393),
-                       end=c(141031612)
+                       start=c(141000000),
+                       end=c(141030000)
                )
 )
 
-tab <- TabixFile(fp.vcf)
-hg<-"hg38"
+hg.assembly <- "hg38"
 
-vcf.rng <- readVcf(tab, hg, param=rng)
+vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
 
+#Check the genotype entries
 table(geno(vcf.rng)$GT)
-#    ./.     0/0     0/1     1/1
-#  14197 9216285  709521  432362
+
+#Write out small region of interest
+filepath.common.vcf<-"./data/processed_data/8q24.small.test.vcf"
+writeVcf(vcf.rng,filepath.common.vcf)
 ```
 
 ## Create a trio geno matrix
 
 We begin by creating a `trio geno` object from a clean PED and VCF file:
 
-1. PED file 
+### Read in PED file
+
+1. The PED file should meet the following requirements:
 
     + all PIDs are present in VCF file and vice versa
     + families with large numbers of Mendelian errors are removed
@@ -167,43 +161,66 @@ We begin by creating a `trio geno` object from a clean PED and VCF file:
         5. **sex** - 1 if individual is male, 0 for female
         6. **affected** - 1 if individual is affected, 0 for unaffected
         
-```{r, eval=FALSE}
-filepath.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
-ped <- read.table(filepath.ped,header=FALSE)
-head(ped)
-```
-```{r, echo=FALSE}
-filepath.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
-ped <- read.table(filepath.ped,header=FALSE)
-colnames(ped) <- c( "famid", "pid", "fatid", "motid", "sex","affected")
+If some of these requirements are not met, please check the [cleaning workflow](https://github.com/lindagai/workflows/blob/master/cleaning%20trio%20data/cleaning_workflow.Rmd) for directions on how to create this file.
+        
+```{r}
+filepath.ped<-"./data/raw_data/hg38.ped.txt"
+ped <- read.table(filepath.ped,header=TRUE)
 head(ped)
 ```
 
-2. VCF file for common variants analysis
+### Read in VCF file
+
+2. The VCF for common variants analysis should meet the following requirements:
 
     + all PIDs in VCF are present in PED file and vice versa
     + families with large numbers of Mendelian errors are removed
-    + genotype entries are in `"0/0"`, `"1/0"`, or `"1/1"` format; missing data is indicated by an `NA`
+    + genotype entries are in `"0/0"`, `"1/0"`, or `"1/1"` format; missing data is indicated by an `./.`
     
-```{r, eval=FALSE}
-filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_25_19.vcf"
-hg.assembly<-"hg19"
+If some of these requirements are not met, please check the [cleaning workflow](https://github.com/lindagai/workflows/blob/master/cleaning%20trio%20data/cleaning_workflow.Rmd) for directions on how to create this file.
+
+```{r}
+filepath.common.vcf <- "./data/processed_data/8q24.small.test.vcf"
+hg.assembly <- "hg38"
+vcf <- readVcf(filepath.common.vcf, hg.assembly)
 table(geno(vcf)$GT)
 ```
 
-The `geno` object can be created using the `vcf2geno` function.
-```{r, eval=FALSE}
+Note that the number of SNPs is given by the number of rows, and the number of samples (e.g., number of individuals) is given by the number of columns. We can access this information using `dim`:
+
+```{r}
+dim(geno(vcf)$GT)
+```
+
+Here, our sample dataset contains 371 SNPs and 795 individuals.
+
+### Make `trio.geno` object
+
+The `geno` object can be created using the `vcf2geno` function. Note that SNPs with missing entries (`.\.`) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.
+
+```{r}
 trio.geno <- trio::vcf2geno(vcf,ped)
 ```
-```{r,echo = FALSE}
-filepath.geno<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_trio_geno_07_31_19.RDS"
-trio.geno<-readRDS(filepath.geno)
+
+To check how many SNPs remain, we again use `dim`:
+```{r}
+dim(trio.geno)
 ```
+
+#### Remove SNPs with MAF > 0.05
 It is recommended to limit the common variants analysis to common variants, i.e. SNPs with MAF > 0.05:
 
 ```{r}
 trio.geno <- trio::removeSNPs(trio.geno, maf = 0.05)
 ```
+
+Again, we check how many SNPs remain, using `dim`:
+
+```{r}
+dim(trio.geno)
+```
+
+27 SNPs remain.
 
 The geno matrix itself is a matrix, which has:
 
@@ -218,8 +235,8 @@ trio.geno[1:5,1:5]
 ```
 
 Note that the `geno` object may take a long time to load, so you may want to save it.
-```{r, eval=FALSE}
-filepath.trio.geno<-"/users/lgai/8q24_project/data/processed_data/trio_tdt_format/8q24_trio_geno_07_019_19.RDS"
+```{r}
+filepath.trio.geno<-"./data/processed_data/trio_geno.RDS"
 saveRDS(trio.geno, filepath.trio.geno)
 ```
 
@@ -229,15 +246,11 @@ The genotypic TDT is strongly recommended over the the allelic TDT, as the genot
 
 We demonstrate the gTDT for the additive model below. To use an alternative model, simply type in `"dominant"` or `"recessive"` instead of `"additive"`.
 
-```{r, eval=FALSE}
-#This also takes awhile, you may want to save it
-gTDT.results<-trio::tdt(trio.geno, model = c("additive"))
-gTDT.results
-```
-```{r,echo = FALSE}
-filepath.gTDT.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_gTDT_07_31_19.RDS"
-gTDT.results<-readRDS(filepath.gTDT.results)
-gTDT.results
+```{r}
+#This can take awhile
+#You may want to save it if you are working with large files
+gTDT.results<-trio::colTDT(trio.geno)
+gTDT.results %>% head
 ```
 
 ```{r}
@@ -260,13 +273,8 @@ gTDT.df %>% head
 
 If desired, the aTDT can also be performed by trio. As of July 2019, the aTDT is considerably more popular than the gTDT (possibly because it is implemented in the popular PLINK software). In most cases, the aTDT and gTDT report similar results, but the gTDT has better statistical properties (citation).
 
-```{r, eval=FALSE}
+```{r}
 aTDT.results<-allelicTDT(trio.geno)
-```
-```{r,echo = FALSE}
-filepath.aTDT.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_aTDT_07_31_19.RDS"
-aTDT.results<-readRDS(filepath.aTDT.results)
-aTDT.results
 ```
 ```{r}
 #Create dataframe of allelic TDT p-values and snp_names
@@ -274,17 +282,10 @@ aTDT.df<-as.data.frame(cbind(aTDT.results$stat,aTDT.results$pval))
 colnames(aTDT.df)<-c("stat","pval")
 
 aTDT.df <- aTDT.df %>%
-  arrange(pval) %>% 
-  mutate(neglogp = -log10(pval))
+        arrange(pval) %>% 
+        mutate(neglogp = -log10(pval))
 
 aTDT.df %>% head
-```
-
-
-## Scan-Trio
-
-```{r, eval=FALSE}
-#in progress!
 ```
 
 ## Visualization
@@ -293,29 +294,24 @@ Basic Manhattan plots can be created with `ggplot2`. First, we must extract the 
 ### Extracting position and SNP IDs from the VCF
 To get the genomic positions associated with each SNP quickly, we will specify that we only need to read in the FIXED field from the VCF, using `VariantAnnotation`'s `ScanVcfParam` object:
 
-```{r, eval=FALSE}
-filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_30_19.vcf"
+```{r, warning=FALSE}
+fp.vcf<-"./data/processed_data/8q24.small.test.vcf"
 
 ## Return CHROM, POS, ID and REF from 'fixed' field
 # do not read in other fields
 svp <- ScanVcfParam(fixed="NA", info="NA", geno="NA")
-vcf.svp <- readVcf(filepath.common.vcf, "hg19", svp)
+vcf.svp <- readVcf(fp.vcf, "hg38", svp)
 
+#Add SNP name and position to DF of results
 snp<-names(vcf.svp)
 pos<-start(rowRanges(vcf.svp))
 snp.pos.df<-data.frame(snp,pos)
 head(snp.pos.df)
 ```
-```{r,echo = FALSE}
-filepath.snp.pos.df<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24_snp.pos.df_07_31_19.RDS"
-snp.pos.df<-readRDS(filepath.snp.pos.df)
-head(snp.pos.df)
-head(gTDT.df)
-```
 
 We now merge the SNP/POS dataframe with the dataframe of results from aTDT and gTDT, so that we can create Manhattan plots. We use `dplyr::left_join` to only keep the position information of the SNPs present in the aTDT and gTDT results.
 
-```{r, warning=FALSE}
+```{r}
 gTDT.df<- left_join(gTDT.df,snp.pos.df)
 head(gTDT.df)
 
@@ -325,35 +321,149 @@ head(aTDT.df)
 
 If you plan to do rare variants analysis, save these results so that you can compare the common variants analysis to the rare variants analysis results.
 
-```{r, eval=FALSE}
-filepath.aTDT.df<-"/where/you/want/aTDT/results/to/go"
-saveRDS(aTDT.df, filepath.aTDT.results)
-
-filepath.gTDT.df<-"/where/you/want/gTDT/results/to/go"
-saveRDS(gTDT.df, filepath.gTDT.results)
+```{r}
+filepath.gTDT.results <- "./results/common_var/gTDT.results.txt"
+write.table(gTDT.df, filepath.gTDT.results, sep = "        ", quote = FALSE, row.names = FALSE) 
+        
+filepath.aTDT.results <- "./results/common_var/aTDT.results.txt"
+write.table(aTDT.df, filepath.aTDT.results, sep = "        ", quote = FALSE, row.names = FALSE)
 ```
 
 ### gTDT
 
 ```{r}
 ggplot(gTDT.df)+
-  geom_point(aes(x=pos,y=neglogp)) +
-  labs(title="Genotypic TDT results",
-       x="SNP position", y = "-log10p")
+        geom_point(aes(x=pos,y=neglogp)) +
+        labs(title="Genotypic TDT results",
+             x="SNP position", y = "-log10p")
 ```
 
 ### aTDT
 ```{r}
 ggplot(aTDT.df)+
-  geom_point(aes(x=pos,y=neglogp)) +
-  labs(title="Allelic TDT results",
-       x="SNP position", y = "-logp")
+        geom_point(aes(x=pos,y=neglogp)) +
+        labs(title="Allelic TDT results",
+             x="SNP position", y = "-log10p")
 ```
 
-### Scan-Trio
 ### Comparison across methods
 
+A popular package for visualization genomic results is [Gviz](https://bioconductor.org/packages/release/bioc/html/Gviz.html). Here, we demonstrate how to create a simple graph in Gviz that compares results from the allelic and genotypic TDT results.
+
+
+First, we set up initial ideograms of the genomic region and its associated genes:
+
+```{r}
+#Basic information about the genetic region
+chr <- "chr8"
+from <- 141000000
+to <- 141030000
+regCode <- "8q24"
+gen <- "hg38"
+
+#Set up initial tracks
+itrack <- IdeogramTrack(genome = gen, chromosome = chr, showBandId = TRUE,
+                        cex.bands=0.8#, 
+                        #showID=TRUE
+                        )
+
+gtrack <- GenomeAxisTrack()
+
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+#Get the gene region track for the database results in the relevant region
+txTr <- GeneRegionTrack(txdb, genome = gen, chromosome = chr,
+                        start = from, end = to, name = "Genes", showId=TRUE,
+                        geneSymbols=TRUE, collapseTranscripts="meta", 
+                        col.title="black", cex.title=0.8#, cex.group=0.8
+                        )
+```
+
+We then add our results from gTDT and aTDT:
+
+```{r}
+#A. gTDT track
+filepath.genotypic.tdt.results <- "./results/common_var/gTDT.results.txt"
+genotypic.tdt.results <- read.table(filepath.genotypic.tdt.results,header=TRUE)
+genotypic.tdt.results %>% head
+log10p.gTDT <- -log10(genotypic.tdt.results$pval)
+
+genotypic.tdt.results %>% head
+
+dtrack.gTDT <- DataTrack(data=log10p.gTDT,
+                         start=genotypic.tdt.results$pos-1,
+                         end=genotypic.tdt.results$pos,
+                         genome="hg38", chromosome="chr8",
+                         name= "-log10p (gTDT)",
+                         ylim=c(-0.5,2),
+                         baseline=0, v=0, col.line="grey92",
+                         cex=2,
+                         cex.title=1, col.title="black", 
+                         col.axis="black")
+
+#B. aTDT track
+
+filepath.allelic.tdt.results<-"./results/common_var/aTDT.results.txt"
+allelic.tdt.results <- read.table(filepath.allelic.tdt.results,header=TRUE)
+allelic.tdt.results  %>% head
+log10p.aTDT <- -log10(allelic.tdt.results$pval)
+
+dtrack.aTDT <- DataTrack(data=log10p.aTDT,
+                         start = allelic.tdt.results$pos-1,
+                         end = allelic.tdt.results$pos,
+                         genome="hg38", chromosome="chr8",
+                         name= "-log10p (gTDT)",
+                         ylim=c(-0.5,2),
+                         baseline=0, v=0, col.line="grey92",
+                         cex=2,
+                         cex.title=1, col.title="black", 
+                         col.axis="black")
+```
+
+Finally, we build the graph:
+```{r}
+plotTracks(list(itrack,
+                txTr,
+                gtrack,
+                dtrack.gTDT,
+                dtrack.aTDT),
+background.title="darkgray",from= from, to=to)
+```
+
 # Rare variants analysis
+
+## Phasing
+
+Haplotype phasing allows us to identify alleles located on the same chromosome in 1 individual (an excellent overview of the process can be found [here](https://data-science-sequencing.github.io/Win2018/lectures/lecture10/)). Most of the rare variant analysis methods used here require knowing which parent transmitted which particular variants for the variants to be weighted appropriately, so phasing is generally recommended.
+
+Here, we will use BEAGLE to perform haplotype phasing, as well as imputation of missing genotypes and alleles.
+
+### Selecting the subset of chromosome to phase
+
+Phasing takes a long time, so it is often preferable to identify a relatively small region of interest prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences (e.g., for missing observations), so you will need to include "buffer windows" on either side of the candidate gene to ensure that variants within the region of interest are phased correctly.
+
+Here, we choose 8q24 as our candidate gene, choose a buffer window size of 100 kB, and save it as a VCF. Note that common variants MUST be included in the VCF for phasing.
+
+```{r,eval = FALSE}
+#Read in candidate gene region + buffer window
+#Save as new VCF
+```
+
+### Phasing the dataset
+
+Phasing can be done in the R console with the below code. For the 8q24 file (~4.4 MB), phasing takes approximately 45 minutes.
+
+```{r,eval = FALSE}
+phase.command<-paste0("java -Xmx10000m -jar ", filepath.beagle4,
+                      " gt=",filepath.vcf,
+                      " ped=",filepath.ped,
+                      " out=",filepath.phased.vcf)
+phase.command
+
+system(phase.command)
+```
+
+
 ## Types of filtering
 To enrich rare variant signal, it is often helpful to filter the dataset under analysis to probable causal variants or candidate genes. Below we discuss a few types of filters you may consider:
 
@@ -525,25 +635,6 @@ annovar<-read.table(filepath.sm.annovar,sep="\t",header=TRUE, quote ="")
 vcf<-vcf[which(start(rowRanges(vcf)) %in% annovar$StartPosition),]
 ```
 
-## Phasing
-
-Haplotype phasing allows us to identify the alleles that are co-located on the same chromosome in 1 individual (an excellent overview of the process can be found [here](https://data-science-sequencing.github.io/Win2018/lectures/lecture10/)), in addition to imputing missing genotypes and alleles. Most of the rare variant analysis methods used here require the data to be phased for the variants to be weighted appropriately, so phasing is generally recommended. 
-
-Note that phasing takes a long time, so it is often preferable to do filtering steps prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences for missing observations, so there may be some benefits to phasing a whole gene at a time, as opposed to a collection of SNPs that are not necessarily close to one another.
-
-### Phasing the dataset
-
-Phasing can be done in the R console with the below code. For the 8q24 file (~4.4 MB), phasing takes approximately 45 minutes.
-
-```{r,eval = FALSE}
-phase.command<-paste0("java -Xmx10000m -jar ", filepath.beagle4,
-                      " gt=",filepath.vcf,
-                      " ped=",filepath.ped,
-                      " out=",filepath.phased.vcf)
-phase.command
-
-system(phase.command)
-```
 
 
 ## Analysis methods
@@ -639,8 +730,8 @@ ggplot() +
 ```
 
 ### Comparison across methods
-#### GViz
-*GViz* is a popular package to visualize genomics results.
+#### Gviz
+*Gviz* is a popular package to visualize genomics results.
 
 
 
