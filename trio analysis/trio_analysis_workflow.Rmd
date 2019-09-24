@@ -24,7 +24,7 @@ In this workflow, we will perform an example trio analysis on a small dataset of
 
 We first perform common variants analysis using the `trio` package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results. 
 
-We use case-parent trios of cleft palate data from Kids First as an example. All individuals in the dataset are of Latino dataset, and the data has genome build hg38.
+Our example dataset consists of whole-genome-sequencing data from 265 cleft palate case-parent trios (795 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of Latino dataset, and the data has genome build hg38. 
 
 # Setup
 ## R packages
