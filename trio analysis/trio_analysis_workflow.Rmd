@@ -80,19 +80,6 @@ To improve the power of statistical tests for rare variant analysis, it is often
 
 In this workflow, we are using ANNOVAR as the main source of functional annotation information, although many other resources exist; we describe some below.
 
-#### **ANNOVAR** 
-
-ANNOVAR is a software tool for annotating genetic variants, which can be downloaded from their website [here](http://annovar.openbioinformatics.org/en/latest/). ANNOVAR will produce a .txt report with functional annotation scores, positions with stop-codons, which can then be used to filter the VCF to potentially causal variants prior to rare variant analysis.
-
-In this workflow, we use an ANNOVAR Report in .txt format based on hg19, for chromosome 8, that can be found here:
-
-```{r,eval = FALSE}
-"/dcl01/beaty/data/gmkf/euro/anno/ANNOVAR_Uploaded/fullannot.gmkf.snvs.c8.T3.ss_ANNOVAR_REPORT.txt"
-```
-
-#### Additional sources of annotation information.
-Although a walkthrough of these methods is beyond the scope of these workflow, Bioconductor also has additional packages for filtering VCFs using annotation information with excellent walkthroughs, notably [AnnotationHub](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) and [TVTB](https://bioconductor.org/packages/release/bioc/vignettes/TVTB/inst/doc/Introduction.html). 
-
 ### Haplotype phasing
 
 Prior to rare variant analysis, you will need to phase the dataset (i.e., identifying which alleles in each individual are located on the same chromosomes). For most rare variant methods, we need to know which parent transmitted which alleles to the child to calculate the test statistics.
@@ -188,6 +175,8 @@ If some of these requirements are not met, please check the [cleaning workflow](
 filepath.common.vcf <- "./data/processed_data/8q24.small.test.vcf"
 hg.assembly <- "hg38"
 vcf <- readVcf(filepath.common.vcf, hg.assembly)
+
+#Examine the genotype entries to make sure they're correct
 table(geno(vcf)$GT)
 ```
 
@@ -276,7 +265,7 @@ We demonstrate the gTDT for the additive model below. To use an alternative mode
 ```{r}
 #This can take awhile
 #You may want to save it if you are working with large files
-gTDT.results<-trio::colTDT(trio.geno)
+gTDT.results<-trio::colTDT(trio.geno, model = c("additive"))
 gTDT.results %>% head
 ```
 
@@ -467,22 +456,45 @@ Here, we will use BEAGLE to perform haplotype phasing, as well as imputation of 
 
 ### Selecting the subset of chromosome to phase
 
-Phasing takes a long time, so it is often preferable to identify a relatively small region of interest prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences (e.g., for missing observations), so you will need to include "buffer windows" on either side of the candidate gene to ensure that variants within the region of interest are phased correctly.
+**Phasing takes a long time**, so it is often preferable to identify a relatively small region of interest prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences about which parent transmitted which alleles and to impute missing observations, so you will need to include "buffer windows" on either side of the candidate gene to ensure that variants within the region of interest are phased correctly.
 
-Here, we choose 8q24 as our candidate gene, choose a buffer window size of 100 kB, and save it as a VCF. Note that common variants MUST be included in the VCF for phasing.
+Since our example dataset is a small subset of 8q24 (hg38:141000000-143000000), we cannot subset to an entire candidate gene. Here, we are going to instead choose to examine a subset of the example dataset (hg38:141015000-141025000), and choose a buffer window size of 1000 kB. Note that **common variants MUST be included in the VCF** for phasing.
 
 ```{r,eval = FALSE}
-#Read in candidate gene region + buffer window
-#Save as new VCF
+filepath.vcf <- "./data/processed_data/8q24.small.test.vcf"
+hg.assembly <- "hg38"
+
+#Specify interval of interest and buffer size
+start <- 141015000
+end <- 141025000
+buffer.window.size <- 1000
+
+rng <- GRanges(seqnames="chr8",
+               ranges=IRanges(
+                       start = start - buffer.window.size ,
+                       end = end + buffer.window.size)
+               )
+)
+
+#Read in subset
+hg.assembly <- "hg38"
+vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
+
+#Check how many SNPs remain
+geno(vcf.rng)$GT %>% dim
+
+#Write out
+fp.vcf.to.phase <- "./data/processed_data/vcf.to.phase.vcf"
+writeVcf(vcf.rng, fp.vcf.to.phase)
 ```
 
 ### Phasing the dataset
 
-Phasing can be done in the R console with the below code. For the 8q24 file (~4.4 MB), phasing takes approximately 45 minutes.
+Phasing can be done in the R console with the below code. Note that this step may take a long time, so be sure that the file you want to phase has been subsetted to the gene or region of interest.
 
 ```{r,eval = FALSE}
 phase.command<-paste0("java -Xmx10000m -jar ", filepath.beagle4,
-                      " gt=",filepath.vcf,
+                      " gt=",filepath.vcf.to.phase,
                       " ped=",filepath.ped,
                       " out=",filepath.phased.vcf)
 phase.command
@@ -490,8 +502,37 @@ phase.command
 system(phase.command)
 ```
 
+## Filter the VCF to rare variants only and remove monomorphic SNPS
+```{r,eval = FALSE}
+#Read in and check genotype entries
+filepath.phased.vcf <- "./data/processed_data/phased.vcf"
+hg.assembly <- "hg38"
+vcf <- readVcf(filepath.phased.vcf, hg.assembly)
+table(geno(vcf)$GT)
 
-## Types of filtering
+#Calculate MAFs
+maf.matrix <- geno(vcf)$GT
+
+#Replace genotypes with allele counts
+maf.matrix[maf.matrix == "0|0"]<- 0
+maf.matrix[maf.matrix == "1|0"]<- 1
+maf.matrix[maf.matrix == "0|1"]<- 1
+maf.matrix[maf.matrix == "1|1"]<- 2
+
+maf.matrix <- colMeans(maf.matrix)
+
+#Identify SNPs with MAF < 0.01 and remove monomorphic SNPS
+rare.var.snps <- which(maf.matrix < 0.01 & maf.matrix != 0)
+
+#Filter VCF to rare variants only
+geno(vcf)$GT <- geno(vcf)$GT[, rare.var.snps]
+
+#Write out VCF
+fp.rare.vcf <- "./data/processed_data/rare.var.vcf"
+writeVcf(vcf.rare, fp.rare.vcf)
+```
+
+## Types of additional filtering
 To enrich rare variant signal, it is often helpful to filter the dataset under analysis to probable causal variants or candidate genes. Below we discuss a few types of filters you may consider:
 
 ### Filtering by annotation information
@@ -509,175 +550,89 @@ For example, if you have already done a common variants analysis and discovered 
 
 Prior to filtering, performing EDA on the annotation information on the region of interest will allow you to better select filters well-suited to your analysis.
 
-### Functional annotation scores
-
-First, we can examine annotation information for the variants in the dataset, using a .txt file from downloaded ANNOVAR. 
-
-```{r,eval = FALSE}
-filepath.annovar<-"/users/lgai/8q24_project/data/processed_data/annotation/fullannot.gmkf.snvs.8q24.T3.ss_ANNOVAR_REPORT.txt"
-
-annovar<-read.table(filepath.annovar, sep="\t", quote ="", 
-                    header=TRUE, stringsAsFactors=FALSE)
-```
-
-We can subset the ANNOVAR to just the positions in our dataset:
-```{r,eval = FALSE}
-#Get the positions in the VCF by reading in minimal VCF with svp
-svp <- ScanVcfParam(fixed="NA", info="NA", geno="NA")
-filepath.rare.vcf<-"./data/processed_data/vcfs/8q24.16snp.rarevar.08_19_19.recode.vcf"
-vcf.svp <- readVcf(filepath.rare.vcf, "hg38", svp)
-snp<-names(vcf.svp)
-pos<-start(rowRanges(vcf.svp))
-
-#Subset the ANNOVAR to the positions in the VCF
-annovar <- annovar %>% filter(StartPosition %in% pos)
-
-#Complete ANNOVAR is large, so let's delete it
-rm(annovar)
-#Complete VCF is large, so let's delete it
-rm(vcf.svp)
-```
-
-To examine the variables available:
-```{r,eval = FALSE}
-#View column names
-colnames(annovar)
-```
-
-Looking at the list of column names, we can choose the following list of variables as containing potentially interesting annotation information:
-
-```{r,eval = FALSE}
-sm.annovar<-annovar %>%
-  dplyr::select("StartPosition",
-         "EndPosition",
-         "ReferenceAllele",
-         "AlternativeAllele",
-         "Genotype",
-         "Quality",
-         "TotalDepth",
-         "Score_Ljb_phylop",
-         "Score_Ljb_pp2hdiv",
-         "Score_Ljb_pp2hvar",
-         "SiftScore",
-         "CADDgt20",
-         "WG_GWAVA_score",
-         "WG_EIGEN_score"
-  )
-  
-```
-  
-Now we can examine the functional annotation scores to see which have useful entries.
-
-```{r,eval = FALSE}
-#Calculate percent-missingness in each annotation score
-sm.annovar  %>%
-        dplyr::select(
-                "Score_Ljb_pp2hdiv",
-                "Score_Ljb_pp2hvar",
-                "SiftScore",
-                "CADDgt20",
-                "WG_GWAVA_score",
-                "WG_EIGEN_score") %>%
-        summarise_each(funs(100*mean(is.na(.))))
-
-#Select functional annotation scores to examine
-sm.annovar  %>%
-        dplyr::select(
-         "Score_Ljb_pp2hdiv",
-         "Score_Ljb_pp2hvar",
-         "SiftScore",
-         "CADDgt20",
-         "WG_GWAVA_score",
-         "WG_EIGEN_score"
-        ) %>%
-        lapply(range, na.rm=TRUE)
-```
-
-Here, we will choose to filter based on CADD, GWAVA, and EIGEN scores:
-
-```{r,eval = FALSE}
-sm.annovar<- sm.annovar %>%
-        dplyr::select(
-         "EndPosition",
-         "ReferenceAllele",
-         "AlternativeAllele",
-         "Genotype",
-         "Quality",
-         "TotalDepth",
-         "CADDgt20",
-         "WG_GWAVA_score",
-         "WG_EIGEN_score"
-```
-
-Examining the literature for [CADD](https://academic.oup.com/nar/article/47/D1/D886/5146191#129633560), [GWAVA](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5015703/), and [EIGEN](https://biodatamining.biomedcentral.com/articles/10.1186/s13040-018-0179-3), we can find that the recommended score cut-offs for functional variants are >10, >0.5, and 0, respectively (NOTE: check EIGEN and cite these properly later):
-
-So now we can filter to those sites:
-
-```{r,eval = FALSE}
-sm.annovar<- sm.annovar %>%
-  filter(CADDgt20 > 10 | WG_GWAVA_score > 0.5 | WG_EIGEN_score > 0)
-  
-#How many positions are left?
-annovar.filtered %>% nrow
-```
-
 ### Common variant signal
-As we showed in [Section 3](#test1), the region in 129.9-130.1 Mb on genome build hg19 appears to be linked to an increased risk of cleft palate using all 3 common variants test.
+In [Section 3.5.2](### gTDT) and [Section 3.5.3](### aTDT), the region on 141.015- 141.025 Mb on genome build hg38 appears to be associated with an increased risk of cleft palate in the example dataset, using both the gTDT and the aTDT. 
 
-If desired, we could subset the ANNOVAR further to the region within the area of peak common variant signal:
-
-```{r,eval = FALSE}
-a<-129875000
-b<-130000000
-
-annovar.filtered.peak <- annovar.filtered %>%
-        filter(StartPosition > a & StartPosition < b)
-
-#How many positions are left?
-annovar.filtered.peak %>% nrow
-```
-
-### Save ANNOVAR as a list of positions to filter to in VCF
-Finally, we can save the reduced ANNOVAR file that only contains positions that we are interested in testing.
+A natural variant set to test, then, might be the region within the area of peak common variant signal. To be able to read in a subset of the VCF, we will need to re-bgzip and index the phased vcf that contains only rare variants. We can then subset the VCF:
 
 ```{r,eval = FALSE}
-filepath.sm.annovar<-"where/you/want/annovar/to/be.txt"
-write.table(sm.annovar, filepath.sm.annovar, sep="\t",row.names = FALSE,quote = FALSE)
-```
+fp.rare.vcf <- "./data/processed_data/rare.var.vcf"
+fp.vcf.bgz <- "./data/raw_data/rare.var.vcf.bgz"
 
-### Filter VCF
-First, we filter the VCF to contain only variants with an MAF < 0.01, and remove monomorphic SNPs. To do this, we use vcftools:
+fp.zipped <- bgzip(fp.rare.vcf, fp.vcf.bgz)
+fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
+fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
+
+#Read in region with highest signal based on common variant results
+
+a <-141015000
+b <-141025000
+
+rng <- GRanges(seqnames="chr8",
+               ranges=IRanges(
+                       start = a,
+                       end = b)
+               )
+)
+
+hg.assembly <- "hg38"
+
+vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
+
+#Check how many SNPs remain
+geno(vcf.rng)$GT %>% dim
+```
+### Annotation information
+
+Filtering the VCF to variants that have high functional annotation scores that indicate potential deleteriousness can increase the power of rare variant tests to detect potential association with disease risk. Some functional annotation scores you might consider using are CADD, EIGEN, PolyPhen, and SIFT.
+
+Many functional annotation scores are available in large databases that can be downloaded. Although a walkthrough of these methods is beyond the scope of these workflow, we recommend some sources of annotation information below.
+
+#### **Annotation on Bioconductor**
+Bioconductor contains many annotation databases that can be downloaded using R and have excellent, detailed walkthroughs.
+
+##### **EnsemblVEP **
+EnsemblVEP is a popular program for annotating VCF files, and can be easily installed locally using [Bioconda](https://bioconda.github.io/recipes/ensembl-vep/README.html), assuming you have Perl on your computer. It also has R wrapper functions in the Bioconductor package [ensemblVEP](https://bioconductor.org/packages/release/bioc/html/ensemblVEP.html).
+
+Annotating a VCF with EnsemblVEP allows the user to use the excellent VCF filtering tools in Bioconductor's The VCF Tool Box package, also known as [TVTB](https://bioconductor.org/packages/release/bioc/vignettes/TVTB/inst/doc/Introduction.html). 
+
+##### **AnnotationHub**
+
+[AnnotationHub](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) is another well-documented package that allows R users to . Note that most of the most updated annotation databases for humans (e.g. annotation databases for hg38) are for evolutionary conservation (e.g. PhyloPhen), not functional annotation or deleteriousness (e.g. CADD or PolyPhen).
+
+#### External software for annotation
+
+##### **ANNOVAR** 
+
+ANNOVAR is a software tool for annotating genetic variants, which can be downloaded from their website [here](http://annovar.openbioinformatics.org/en/latest/). ANNOVAR will produce a .txt report with functional annotation scores, positions with stop-codons, which can then be used to filter the VCF to potentially causal variants prior to rare variant analysis.
+
+#### **1000 Genomes**
+
+### Write out
+
+When you are done filtering your VCF to your desired rare variant set, write it out:
 
 ```{r,eval = FALSE}
-#In Terminal, not in R
-module load vcftools
-vcftools --vcf ./data/processed_data/your.vcf --max-maf 0.01 --non-ref-ac-any 1 --recode --out ./data/processed_data/vcfs/your.rarevar.filename
+#Write out small region of interest
+fp.rare.filtered.vcf <- "./data/processed_data/rare.var.filtered.vcf"
+writeVcf(vcf.rare.filtered, fp.vcf.rare.filtered)
 ```
-
-Secondly, we can optionally filter the VCF to contain only the positions that are in the ANNOVAR:
-
-```{r,eval = FALSE}
-filepath.sm.annovar<-"where/you/want/annovar/to/be.txt"
-annovar<-read.table(filepath.sm.annovar,sep="\t",header=TRUE, quote ="")
-vcf<-vcf[which(start(rowRanges(vcf)) %in% annovar$StartPosition),]
-```
-
-
 
 ## Analysis methods
 
-Now we can finally start doing some rare variant analysis! We first read in the filtered VCF with monomorphs removed, along with its cleaned PED:
+Once you have your filtered rare variant set, you can finally start doing some rare variant analysis! We first read in the cleaned PED file, as the well as the filtered VCF:
 
 ```{r,eval = FALSE}
-filepath.vcf<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/8q24.cleaned.phased.filtered.annotation.rarevar.monomorphs.removed.recode.vcf"
-filepath.vcf.ped<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios_ids_match_vcf_mend_errors_removed.phen"
+fp.ped<-"./data/raw_data/hg38.ped.txt"
+ped <- read.table(fp.ped,header=TRUE)
+head(ped)
 
-ped<-read.table(filepath.vcf.ped,header=FALSE)
-vcf<-VariantAnnotation::readVcf(filepath.vcf, "hg19")
+fp.rare.filtered.vcf <- "./data/processed_data/rare.var.filtered.vcf"
+hg.assembly <- "hg38"
+vcf<-VariantAnnotation::readVcf(fp.rare.filtered.vcf, hg.assembly)
 ```
 
 ### RV-TDT
-
 RV-TDT can be run on both the entire VCF at once -- this gives you one "window" that contains all the SNPs in the VCF.
 
 ```{r,eval = FALSE}
@@ -705,14 +660,8 @@ head(RV_TDT.results)
 #wrapper functions in progress
 ```
 
-### Scan-Trio
-
-```{r}
-#wrapper functions in progress
-```
-
 ## Visualization
-#### RV-TDT
+### RV-TDT
 
 To graph RV-TDT results for multiple windows, it must be converted into long format. That is, each row represents a window tested by a specific test in RV-TDT, and `test` is a column indicating which RV-TDT was performed.
 
@@ -739,7 +688,7 @@ ggplot() +
                                x = mid.window.pos, y = -log10(pval)))+
     geom_hline(yintercept=bonferroni.sig.level, linetype=2, color = "red", size=2) +
     labs(title='RV-TDT results for window size = 25 SNPs, 24 SNP overlap',
-         x ='Position (hg19)', y = '-log10p-value at center of window')+
+         x ='Position (hg38)', y = '-log10p-value at center of window')+
     guides(color=guide_legend("RV-TDT test type")) +
   scale_linetype_manual(name = "Bonferroni-corrected significance", values = 2,
                         guide = guide_legend(override.aes = list(color = c("red"))))
@@ -751,20 +700,12 @@ ggplot() +
 #wrapper functions in progress
 ```
 
-#### Scan-Trio
-```{r}
-#wrapper functions in progress
-```
-
 ### Comparison across methods
 #### Gviz
 *Gviz* is a popular package to visualize genomics results.
 
-
-
-
-<!-- ## snp.plotter -->
-<!-- ## LocusZoom -->
+####  Alternative visualization packages
+Tutorials for alternative visualization packages are beyond the scope of this workflow. But some possible options are snp.plotter, LocusZoom, and qqman.
 
 # Troubleshooting
 ## RV-TDT
