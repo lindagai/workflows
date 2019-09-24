@@ -24,7 +24,7 @@ In this workflow, we will perform an example trio analysis on a small dataset of
 
 We first perform common variants analysis using the `trio` package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results. 
 
-We use case-parent trios of cleft palate data from Kids First as an example.
+We use case-parent trios of cleft palate data from Kids First as an example. All individuals in the dataset are of Latino dataset, and the data has genome build hg38.
 
 # Setup
 ## R packages
@@ -50,7 +50,8 @@ If you do not have them, run the following code:
 #Bioconductor
 if (!requireNamespace("BiocManager", quietly = TRUE))
         install.packages("BiocManager")
-BiocManager::install(c("VariantAnnotation", "trio", "Gviz", "TxDb.Hsapiens.UCSC.hg38.knownGene"))
+BiocManager::install(c("VariantAnnotation", "trio",
+                       "Gviz", "TxDb.Hsapiens.UCSC.hg38.knownGene"))
 
 #CRAN
 install.packages("dplyr")
@@ -108,7 +109,7 @@ As of May 2019, newer versions of BEAGLE (4.1 or 5.0) do not account for family 
 
 # Common variants analysis {#test1}
 
-In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the [`trio` package](https://www.bioconductor.org/packages/release/bioc/html/trio.html). `trio` accepts both PLINK ped files and VCF files. Scan-Trio is part of the `rvtrio` package and is currently in development.
+In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the [`trio` package](https://www.bioconductor.org/packages/release/bioc/html/trio.html). `trio` accepts both PLINK ped files and VCF files, but we will use VCF files for this workflow.
 
 ## Select the genomic region you would like to analyze
 
@@ -194,21 +195,47 @@ dim(geno(vcf)$GT)
 
 Here, our sample dataset contains 371 SNPs and 795 individuals.
 
-### Make `trio.geno` object
+### Make the `geno` matrix
 
-The `geno` object can be created using the `vcf2geno` function. Note that SNPs with missing entries (`.\.`) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.
+The `geno` matrix is a matrix that is an input to the common variants tests, which has:
+
+1. $3n$ rows, where $n$ = number of trios, where each row contains all the genotypes for a particular individual
+
+2. $p$ columns, where $p$ = number of genomic sites under examination. Each entry is a `"0"`, `"1"`, or `"2"` (i.e., the number of minor alleles) at a particular genomic site.
+
+Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.
+
+The `geno` object can be created using the `vcf2geno` function. Note that SNPs with missing entries (`./.`) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.
 
 ```{r}
 trio.geno <- trio::vcf2geno(vcf,ped)
+trio.geno[1:5,1:5]
 ```
 
 To check how many SNPs remain, we again use `dim`:
 ```{r}
 dim(trio.geno)
 ```
+248 SNPs remain.
+
+#### Optional: Imputing missing SNP genotypes
+
+If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF using BEAGLE 4.0, which can be installed by following the directions in [Section 2.1.2](### Haplotype phasing) and can be run by following the directions in [Section 5](## Phasing). Then re-create the `geno` matrix after the missing observations have been imputed.
+
+If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: `trio` can only read in genotype entries `"0/0"`, `"0/1"`, or `"1/1"`, whereas a BEAGLE-phased VCF will contain genotype entries `"0/0"`, `"0/1"`, `"1/0"`, and `"1/1"`.
+
+You can do this using the following code:
+
+```{r}
+#Replace '|' with '/'
+geno(vcf)$GT<-gsub("\\|", "\\/",geno(vcf)$GT)
+
+#Replace '0/1' with '0/1'
+geno(vcf)$GT[geno(vcf)$GT == "1/0"]<-"0/1"
+```
 
 #### Remove SNPs with MAF > 0.05
-It is recommended to limit the common variants analysis to common variants, i.e. SNPs with MAF > 0.05:
+It is recommended to limit the common variants analysis to common variants, i.e. we filter out SNPs with MAF < 0.05:
 
 ```{r}
 trio.geno <- trio::removeSNPs(trio.geno, maf = 0.05)
@@ -220,19 +247,9 @@ Again, we check how many SNPs remain, using `dim`:
 dim(trio.geno)
 ```
 
-27 SNPs remain.
+Only 27 SNPs remain!
 
-The geno matrix itself is a matrix, which has:
-
-1. $3n$ rows, where $n$ = number of trios, where each row contains all the genotypes for a particular individual
-
-2. $p$ columns, where $p$ = number of genomic sites under examination. Each entry is a `"0"`, `"1"`, or `"2"` (i.e., the number of minor alleles) at a particular genomic site.
-
-Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.
-
-```{r}
-trio.geno[1:5,1:5]
-```
+#### Save `geno` object
 
 Note that the `geno` object may take a long time to load, so you may want to save it.
 ```{r}

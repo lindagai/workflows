@@ -210,7 +210,7 @@ summary {
 <li><a href="#create-a-trio-geno-matrix"><span class="toc-section-number">3.2</span> Create a trio geno matrix</a><ul>
 <li><a href="#read-in-ped-file"><span class="toc-section-number">3.2.1</span> Read in PED file</a></li>
 <li><a href="#read-in-vcf-file"><span class="toc-section-number">3.2.2</span> Read in VCF file</a></li>
-<li><a href="#make-trio.geno-object"><span class="toc-section-number">3.2.3</span> Make <code>trio.geno</code> object</a></li>
+<li><a href="#make-the-geno-matrix"><span class="toc-section-number">3.2.3</span> Make the <code>geno</code> matrix</a></li>
 </ul></li>
 <li><a href="#genotypic-tdt"><span class="toc-section-number">3.3</span> Genotypic TDT</a></li>
 <li><a href="#allelic-tdt"><span class="toc-section-number">3.4</span> Allelic TDT</a></li>
@@ -282,7 +282,8 @@ library(rvTDT)</code></pre>
 <pre class="r"><code>#Bioconductor
 if (!requireNamespace(&quot;BiocManager&quot;, quietly = TRUE))
         install.packages(&quot;BiocManager&quot;)
-BiocManager::install(c(&quot;VariantAnnotation&quot;, &quot;trio&quot;, &quot;Gviz&quot;, &quot;TxDb.Hsapiens.UCSC.hg38.knownGene&quot;))
+BiocManager::install(c(&quot;VariantAnnotation&quot;, &quot;trio&quot;,
+                       &quot;Gviz&quot;, &quot;TxDb.Hsapiens.UCSC.hg38.knownGene&quot;))
 
 #CRAN
 install.packages(&quot;dplyr&quot;)
@@ -327,7 +328,7 @@ system(dl.beagle4)</code></pre>
 </div>
 <div id="test1" class="section level1">
 <h1><span class="header-section-number">3</span> Common variants analysis</h1>
-<p>In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the <a href="https://www.bioconductor.org/packages/release/bioc/html/trio.html"><code>trio</code> package</a>. <code>trio</code> accepts both PLINK ped files and VCF files. Scan-Trio is part of the <code>rvtrio</code> package and is currently in development.</p>
+<p>In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the <a href="https://www.bioconductor.org/packages/release/bioc/html/trio.html"><code>trio</code> package</a>. <code>trio</code> accepts both PLINK ped files and VCF files.</p>
 <div id="select-the-genomic-region-you-would-like-to-analyze" class="section level2">
 <h2><span class="header-section-number">3.1</span> Select the genomic region you would like to analyze</h2>
 <p>A subset of a Tabix-indexed VCF can be read in using <code>VariantAnnotation</code>’s <code>filterRules</code>. In general, common variants analysis can be performed on an entire chromosome at once. However, to make sure that your code will run on your VCF, it might be good to first start with a smaller subset, e.g. a candidate gene. Here, we will read in a small part of the 8q24 region, a gene desert that contains many regulatory regions:</p>
@@ -414,38 +415,59 @@ table(geno(vcf)$GT)</code></pre>
 <pre><code>## [1] 371 795</code></pre>
 <p>Here, our sample dataset contains 371 SNPs and 795 individuals.</p>
 </div>
-<div id="make-trio.geno-object" class="section level3">
-<h3><span class="header-section-number">3.2.3</span> Make <code>trio.geno</code> object</h3>
+<div id="make-the-geno-matrix" class="section level3">
+<h3><span class="header-section-number">3.2.3</span> Make the <code>geno</code> matrix</h3>
+<p>The <code>geno</code> matrix is a matrix that is an input to the common variants tests, which has:</p>
+<ol style="list-style-type: decimal">
+<li><p><span class="math inline">\(3n\)</span> rows, where <span class="math inline">\(n\)</span> = number of trios, where each row contains all the genotypes for a particular individual</p></li>
+<li><p><span class="math inline">\(p\)</span> columns, where <span class="math inline">\(p\)</span> = number of genomic sites under examination. Each entry is a <code>&quot;0&quot;</code>, <code>&quot;1&quot;</code>, or <code>&quot;2&quot;</code> (i.e., the number of minor alleles) at a particular genomic site.</p></li>
+</ol>
+<p>Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.</p>
 <p>The <code>geno</code> object can be created using the <code>vcf2geno</code> function. Note that SNPs with missing entries (<code>.\.</code>) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.</p>
 <pre class="r"><code>trio.geno &lt;- trio::vcf2geno(vcf,ped)</code></pre>
 <pre><code>## Warning in trio::vcf2geno(vcf, ped): Since 120 of the SNVs show other/addtional genotypes than/to
 ## the ones specified by none, one, and both, these SNVs are removed.</code></pre>
 <pre><code>## Warning in trio::vcf2geno(vcf, ped): Since 3 of the SNVs were monomorphic,
 ## these SNVs were removed.</code></pre>
+<pre class="r"><code>trio.geno[1:5,1:5]</code></pre>
+<pre><code>##            chr8:141000282_G/A chr8:141000337_G/A chr8:141000412_C/G
+## GMKFC15929                  0                  0                  0
+## GMKFC15928                  0                  0                  0
+## GMKFC15927                  0                  0                  0
+## GMKFC16171                  0                  0                  0
+## GMKFC16172                  0                  0                  0
+##            chr8:141000421_G/A chr8:141000443_C/T
+## GMKFC15929                  0                  0
+## GMKFC15928                  0                  0
+## GMKFC15927                  0                  0
+## GMKFC16171                  0                  0
+## GMKFC16172                  0                  0</code></pre>
 <p>To check how many SNPs remain, we again use <code>dim</code>:</p>
 <pre class="r"><code>dim(trio.geno)</code></pre>
 <pre><code>## [1] 795 248</code></pre>
+<p>248 SNPs remain.</p>
+<div id="optional-imputing-missing-snp-genotypes" class="section level4">
+<h4><span class="header-section-number">3.2.3.1</span> Optional: Imputing missing SNP genotypes</h4>
+<p>If it turns out you have a lot of SNPs with missing genotypes, you can choose to impute missing genotypes in the VCF using BEAGLE 4.0, which can be installed by following the directions in <a href="###%20Haplotype%20phasing">Section 2.1.2</a> and can be run by following the directions in <a href="##%20Phasing">Section 5</a>. Then re-create the <code>geno</code> matrix after the missing observations have been imputed.</p>
+<p>If you choose to do this, you will need to edit the genotype entries of the phased VCF prior to running the common variants tests: <code>trio</code> can only read in genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, or <code>&quot;1/1&quot;</code>, whereas a BEAGLE-phased VCF will contain genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, <code>&quot;1/0&quot;</code>, and <code>&quot;1/1&quot;</code>.</p>
+<p>You can do this using the following code:</p>
+<pre class="r"><code>#Replace '|' with '/'
+geno(vcf)$GT&lt;-gsub(&quot;\\|&quot;, &quot;\\/&quot;,geno(vcf)$GT)
+
+#Replace '0/1' with '0/1'
+geno(vcf)$GT[geno(vcf)$GT == &quot;1/0&quot;]&lt;-&quot;0/1&quot;</code></pre>
+</div>
 <div id="remove-snps-with-maf-0.05" class="section level4">
-<h4><span class="header-section-number">3.2.3.1</span> Remove SNPs with MAF &gt; 0.05</h4>
+<h4><span class="header-section-number">3.2.3.2</span> Remove SNPs with MAF &gt; 0.05</h4>
 <p>It is recommended to limit the common variants analysis to common variants, i.e. SNPs with MAF &gt; 0.05:</p>
 <pre class="r"><code>trio.geno &lt;- trio::removeSNPs(trio.geno, maf = 0.05)</code></pre>
 <p>Again, we check how many SNPs remain, using <code>dim</code>:</p>
 <pre class="r"><code>dim(trio.geno)</code></pre>
 <pre><code>## [1] 795  27</code></pre>
-<p>27 SNPs remain.</p>
-<p>The geno matrix itself is a matrix, which has:</p>
-<ol style="list-style-type: decimal">
-<li><p><span class="math inline">\(3n\)</span> rows, where <span class="math inline">\(n\)</span> = number of trios, where each row contains all the genotypes for a particular individual</p></li>
-<li><p><span class="math inline">\(p\)</span> columns, where <span class="math inline">\(p\)</span> = number of genomic sites under examination. Each entry is a <code>&quot;0&quot;</code>, <code>&quot;1&quot;</code>, or <code>&quot;2&quot;</code> (i.e., the number of minor alleles) at a particular genomic site.</p></li>
-</ol>
-<p>Each block of 3 values is composed of the genotypes of the father, the mother, and the offspring (in this order) of a specific trio.</p>
-<pre class="r"><code>trio.geno[1:5,1:5]</code></pre>
-<pre><code>##            rs10098028 rs306955 rs306954 rs150904486 rs306948
-## GMKFC15929          1        2        1           1        1
-## GMKFC15928          0        2        1           0        1
-## GMKFC15927          1        2        0           0        0
-## GMKFC16171          1        2        1           0        1
-## GMKFC16172          1        2        1           1        1</code></pre>
+<p>Only 27 SNPs remain!</p>
+</div>
+<div id="save-geno-object" class="section level4">
+<h4><span class="header-section-number">3.2.3.3</span> Save <code>geno</code> object</h4>
 <p>Note that the <code>geno</code> object may take a long time to load, so you may want to save it.</p>
 <pre class="r"><code>filepath.trio.geno&lt;-&quot;./data/processed_data/trio_geno.RDS&quot;
 saveRDS(trio.geno, filepath.trio.geno)</code></pre>
