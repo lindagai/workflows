@@ -461,8 +461,14 @@ Here, we will use BEAGLE to perform haplotype phasing, as well as imputation of 
 Since our example dataset is a small subset of 8q24 (hg38:141000000-143000000), we cannot subset to an entire candidate gene. Here, we are going to instead choose to examine a subset of the example dataset (hg38:141015000-141025000), and choose a buffer window size of 1000 kB. Note that **common variants MUST be included in the VCF** for phasing.
 
 ```{r,eval = FALSE}
-filepath.vcf <- "./data/processed_data/8q24.small.test.vcf"
-hg.assembly <- "hg38"
+#4.1.1 Selecting the subset of chromosome to phase
+#You will need to Tabix index and bgzip the file prior to reading in a small region using param
+fp.vcf <- "./data/processed_data/8q24.small.test.vcf"
+fp.vcf.bgz <- "./data/processed_data/8q24.small.test.vcf.bgz"
+
+fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
+fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
+fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
 
 #Specify interval of interest and buffer size
 start <- 141015000
@@ -474,7 +480,6 @@ rng <- GRanges(seqnames="chr8",
                        start = start - buffer.window.size ,
                        end = end + buffer.window.size)
                )
-)
 
 #Read in subset
 hg.assembly <- "hg38"
@@ -482,6 +487,7 @@ vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
 
 #Check how many SNPs remain
 geno(vcf.rng)$GT %>% dim
+#139 795
 
 #Write out
 fp.vcf.to.phase <- "./data/processed_data/vcf.to.phase.vcf"

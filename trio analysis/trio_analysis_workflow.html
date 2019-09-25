@@ -11,7 +11,7 @@
 
 
 
-<meta name="date" content="2019-09-24" />
+<meta name="date" content="2019-09-25" />
 
 <title>Trio analysis for common and rare variants</title>
 
@@ -187,7 +187,7 @@ summary {
 <p class="author-name">Linda Gai<span class="affil-mark">1*</span></p>
 <p class="author-affiliation"><span class="affil-mark">1</span>Johns Hopkins School of Public Health</p>
 <p class="author-email"><span class="affil-mark">*</span><a href="mailto:lindagai@jhu.edu">lindagai@jhu.edu</a></p>
-<h4 class="date">24 September 2019</h4>
+<h4 class="date">25 September 2019</h4>
 <h4 class="abstract">Abstract</h4>
 <p>Workflow for trio analysis for common and rare variants.</p>
 
@@ -759,8 +759,14 @@ background.title=&quot;darkgray&quot;,from= from, to=to)</code></pre>
 <h3><span class="header-section-number">4.1.1</span> Selecting the subset of chromosome to phase</h3>
 <p><strong>Phasing takes a long time</strong>, so it is often preferable to identify a relatively small region of interest prior to phasing (e.g., subsetting the VCF to a candidate gene). However, phasing uses the nearby variants to make inferences about which parent transmitted which alleles and to impute missing observations, so you will need to include “buffer windows” on either side of the candidate gene to ensure that variants within the region of interest are phased correctly.</p>
 <p>Since our example dataset is a small subset of 8q24 (hg38:141000000-143000000), we cannot subset to an entire candidate gene. Here, we are going to instead choose to examine a subset of the example dataset (hg38:141015000-141025000), and choose a buffer window size of 1000 kB. Note that <strong>common variants MUST be included in the VCF</strong> for phasing.</p>
-<pre class="r"><code>filepath.vcf &lt;- &quot;./data/processed_data/8q24.small.test.vcf&quot;
-hg.assembly &lt;- &quot;hg38&quot;
+<pre class="r"><code>#4.1.1 Selecting the subset of chromosome to phase
+#You will need to Tabix index and bgzip the file prior to reading in a small region using param
+fp.vcf &lt;- &quot;./data/processed_data/8q24.small.test.vcf&quot;
+fp.vcf.bgz &lt;- &quot;./data/processed_data/8q24.small.test.vcf.bgz&quot;
+
+fp.zipped &lt;- bgzip(fp.vcf, fp.vcf.bgz)
+fp.indexed.tabix &lt;- indexTabix(fp.zipped, format = &quot;vcf&quot;)
+fp.tabix &lt;- TabixFile(fp.zipped, fp.indexed.tabix)
 
 #Specify interval of interest and buffer size
 start &lt;- 141015000
@@ -772,7 +778,6 @@ rng &lt;- GRanges(seqnames=&quot;chr8&quot;,
                        start = start - buffer.window.size ,
                        end = end + buffer.window.size)
                )
-)
 
 #Read in subset
 hg.assembly &lt;- &quot;hg38&quot;
@@ -780,6 +785,7 @@ vcf.rng &lt;- readVcf(fp.tabix, hg.assembly, param=rng)
 
 #Check how many SNPs remain
 geno(vcf.rng)$GT %&gt;% dim
+#139 795
 
 #Write out
 fp.vcf.to.phase &lt;- &quot;./data/processed_data/vcf.to.phase.vcf&quot;
