@@ -59,20 +59,23 @@ install.packages("ggplot2")
 install.packages("rvTDT")
 ```
 
+Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
+
 ## External software required for rare variant analysis
 
 ### RV-TDT
 
+#### Install RV-TDT
 RV-TDT can be installed and run on Linux and Mac OS X. Download the source code from Github [here](https://github.com/statgenetics/rv-tdt) and follow the directions to install RV-TDT.
 
+
+#### Install rvtrio (R wrapper function)
 You will need to give the filepath to RV-TDT to use the R wrapper function `RV_TDT` in `rvtrio`. To install rvtrio, run the following code:
 
 ```{r,eval = FALSE}
 devtools::install_github("lindagai/rvtrio")
 library(rvtrio)
 ```
-
-Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
 
 ### Annotation information
 
@@ -84,15 +87,25 @@ In this workflow, we are using ANNOVAR as the main source of functional annotati
 
 Prior to rare variant analysis, you will need to phase the dataset (i.e., identifying which alleles in each individual are located on the same chromosomes). For most rare variant methods, we need to know which parent transmitted which alleles to the child to calculate the test statistics.
 
-For trio data, we recommend using [BEAGLE 4.0](https://faculty.washington.edu/browning/beagle/b4_0.html) to phase, since it accounts for family information in phasing. It can be downloaded directly in the R console using the code chunk below:
+For trio data, we recommend using [BEAGLE 4.0](https://faculty.washington.edu/browning/beagle/b4_0.html) to phase, since it accounts for family information in phasing. As of May 2019, newer versions of BEAGLE (4.1 or 5.0) do not account for family structure and should be avoided for case-parent trio data.
+
+#### Linux download
+If you are using a Linux computing environment (e.g., most computing clusters), BEAGLE can be downloaded directly in the R console using the code chunk below:
 
 ```{r,eval = FALSE}
-filepath.beagle4<-"filepath/where/you/want/beagle4/to/go/here"
+filepath.beagle4<-"dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
 dl.beagle4<-paste0("wget -O ",filepath.beagle4," https://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
 system(dl.beagle4)
 ```
 
-As of May 2019, newer versions of BEAGLE (4.1 or 5.0) do not account for family structure and should be avoided for case-parent trio data.
+#### Mac OS X download
+If you are running the code on Mac OS X, you will need to instead run
+
+```{r,eval = FALSE}
+filepath.beagle4<-"dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
+dl.beagle4<-paste0("curl -o '",filepath.beagle4,"' http://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
+dl.beagle4
+```
 
 # Common variants analysis {#test1}
 
@@ -499,10 +512,14 @@ writeVcf(vcf.rng, fp.vcf.to.phase)
 Phasing can be done in the R console with the below code. Note that this step may take a long time, so be sure that the file you want to phase has been subsetted to the gene or region of interest.
 
 ```{r,eval = FALSE}
-phase.command<-paste0("java -Xmx10000m -jar ", filepath.beagle4,
-                      " gt=",filepath.vcf.to.phase,
-                      " ped=",filepath.ped,
-                      " out=",filepath.phased.vcf)
+#NOTE: You do not need to include ".vcf" in the output VCF filename
+#BEAGLE adds .vcf.gz to the filename automatically
+fp.phased.vcf <- "./data/processed_data/phased"
+
+phase.command <- paste0("java -Xmx10000m -jar ", fp.beagle4,
+                      " gt=",fp.vcf.to.phase,
+                      " ped=",fp.ped,
+                      " out=",fp.phased.vcf)
 phase.command
 
 system(phase.command)
@@ -511,7 +528,7 @@ system(phase.command)
 ## Filter the VCF to rare variants only and remove monomorphic SNPS
 ```{r,eval = FALSE}
 #Read in and check genotype entries
-filepath.phased.vcf <- "./data/processed_data/phased.vcf"
+filepath.phased.vcf <- "./data/processed_data/phased.vcf.gz"
 hg.assembly <- "hg38"
 vcf <- readVcf(filepath.phased.vcf, hg.assembly)
 table(geno(vcf)$GT)
@@ -519,19 +536,29 @@ table(geno(vcf)$GT)
 #Calculate MAFs
 maf.matrix <- geno(vcf)$GT
 
-#Replace genotypes with allele counts
+#Replace genotypes with minor allele counts
 maf.matrix[maf.matrix == "0|0"]<- 0
 maf.matrix[maf.matrix == "1|0"]<- 1
 maf.matrix[maf.matrix == "0|1"]<- 1
 maf.matrix[maf.matrix == "1|1"]<- 2
 
-maf.matrix <- colMeans(maf.matrix)
+#Convert from string to numeric vector
+maf.matrix <- type.convert(maf.matrix)
+
+#Get MAF of each SNP
+#Divide by 2 because there are 2 alleles per individual
+maf.matrix <- rowMeans(test)/2
+range(maf.matrix)
 
 #Identify SNPs with MAF < 0.01 and remove monomorphic SNPS
-rare.var.snps <- which(maf.matrix < 0.01 & maf.matrix != 0)
+rare.var.snps <- names(which(maf.matrix < 0.01 & maf.matrix != 0))
+rare.var.snps %>% head
+rare.var.snps %>% length
 
 #Filter VCF to rare variants only
-geno(vcf)$GT <- geno(vcf)$GT[, rare.var.snps]
+vcf.rare <- vcf[which(names(rowRanges(vcf)) %in% rare.var.snps),]
+
+table(geno(vcf.rare)$GT)
 
 #Write out VCF
 fp.rare.vcf <- "./data/processed_data/rare.var.vcf"
@@ -579,14 +606,17 @@ rng <- GRanges(seqnames="chr8",
                        start = a,
                        end = b)
                )
-)
 
 hg.assembly <- "hg38"
 
-vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
+vcf.rare.filtered <- readVcf(fp.tabix, hg.assembly, param=rng)
 
 #Check how many SNPs remain
 geno(vcf.rng)$GT %>% dim
+
+#Write out small region of interest
+fp.rare.filtered.vcf <- "./data/processed_data/rare.var.filtered.vcf"
+writeVcf(vcf.rare.filtered, fp.rare.filtered.vcf)
 ```
 ### Annotation information
 
@@ -628,35 +658,51 @@ writeVcf(vcf.rare.filtered, fp.vcf.rare.filtered)
 
 Once you have your filtered rare variant set, you can finally start doing some rare variant analysis! We first read in the cleaned PED file, as the well as the filtered VCF:
 
-```{r,eval = FALSE}
+```{r}
 fp.ped<-"./data/raw_data/hg38.ped.txt"
 ped <- read.table(fp.ped,header=TRUE)
 head(ped)
 
 fp.rare.filtered.vcf <- "./data/processed_data/rare.var.filtered.vcf"
 hg.assembly <- "hg38"
-vcf<-VariantAnnotation::readVcf(fp.rare.filtered.vcf, hg.assembly)
+vcf <- VariantAnnotation::readVcf(fp.rare.filtered.vcf, hg.assembly)
 ```
 
 ### RV-TDT
 RV-TDT can be run on both the entire VCF at once -- this gives you one "window" that contains all the SNPs in the VCF.
 
+Note that you will have to provide the filepath to RV-TDT on your computer to use wrapper function:
+
 ```{r,eval = FALSE}
+filepath.to.RV_TDT <- "where/you/downloaded/RV-TDT"
+
 #Run on the entire VCF (i.e. 1 window)
 RV_TDT.results<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped,
                                rv.tdt.dir = filepath.to.RV_TDT)
 ```
 
-It can also be run on sliding windows containing a user-specified number of markers -- here, we'll use 25 markers as an example. 
-
-```{r,eval = FALSE}
-#Run RV-TDT on 25-marker windows
-RV_TDT.results.25M.windows<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped, rv.tdt.dir = filepath.to.RV_TDT,window.size=25, upper_cutoff=0.01)
-head(RV_TDT.results.25M.windows)
-```
 ```{r,echo = FALSE}
-filepath.results<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/example/RV_TDT.results.25M.windows.txt"
-RV_TDT.results<-read.table(filepath.results,sep="\t",header=TRUE, quote ="")
+filepath.to.RV_TDT <- "/Users/lindagai 1/Documents/classes/4th year/Research/rv-tdt-master/rvTDT"
+
+#Run on the entire VCF (i.e. 1 window)
+RV_TDT.results<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped,
+                               rv.tdt.dir = filepath.to.RV_TDT)
+```
+
+It can also be run on sliding windows containing a user-specified number of markers -- here, we'll use 25 markers as an example. Doing sliding windows can take a long time, so you may want to save it.
+
+```{r}
+#Run RV-TDT on 25-marker windows
+win.size <- 25
+RV_TDT.results <- rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped, rv.tdt.dir = filepath.to.RV_TDT, 
+                                 window.size = win.size, upper_cutoff=0.01)
+head(RV_TDT.results)
+```
+
+```{r, eval=FALSE}
+#Save, if desired
+fp.rv_tdt.results <- paste0("./results/rare_var/RV_TDT.", win.size, "M.txt")
+write.table(RV_TDT.results, fp.rv_tdt.results, sep = "        ", quote = FALSE, row.names = FALSE)
 head(RV_TDT.results)
 ```
 
@@ -683,6 +729,13 @@ RV_TDT.results.long %>% head
 ```
 
 As we are testing multiple windows, we need to perform a Bonferonni correction on the significance level, shown in the graph below.
+
+```{r, echo=FALSE}
+#Remove this after you fix this package
+RV_TDT.results.long$start.pos <- as.numeric(RV_TDT.results.long$start.pos)
+RV_TDT.results.long$end.pos <- as.numeric(RV_TDT.results.long$end.pos)
+RV_TDT.results.long$mid.window.pos <- as.numeric(RV_TDT.results.long$mid.window.pos)
+```
 
 ```{r}
 #Bonferroni corrected
@@ -714,13 +767,11 @@ ggplot() +
 Tutorials for alternative visualization packages are beyond the scope of this workflow. But some possible options are snp.plotter, LocusZoom, and qqman.
 
 # Troubleshooting
+
 ## RV-TDT
 
-### Segmentation fault
-Unsure -- in progress.
-
-### Cannot find file
-The input files for RV-TDT should be relative directories, not absolute directories. (But this shouldn't be a problem if you use the wrapper functions `rvtrio::RV_TDT`.)
+### Segmentation fault: 11
+This is usually caused by one of the input files (ped, tped, or map) to RV-TDT not being formatted correctly. `rvtrio` provides some automatic checks for this, but you should double-check this on your own if you are still getting this error.
 
 ### Produces output file, but no results
 Possible explanations:
