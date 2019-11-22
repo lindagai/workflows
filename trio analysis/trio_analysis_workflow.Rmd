@@ -454,7 +454,7 @@ dtrack.aTDT <- DataTrack(data=log10p.aTDT,
 
 #### Build the graph:
 
-```{r}
+```{r fig1, fig.height = 10, fig.width = 10, fig.align = "center"}
 plotTracks(list(itrack,
                 txTr,
                 gtrack,
@@ -761,8 +761,8 @@ gen <- "hg38"
 
 #Set up initial tracks
 itrack <- IdeogramTrack(genome = gen, chromosome = chr, showBandId = TRUE,
-                        cex.bands=0.8#, 
-                        #showID=TRUE
+                        cex.bands=0.8, 
+                        showID=TRUE
 )
 
 gtrack <- GenomeAxisTrack()
@@ -884,9 +884,11 @@ for (i in 1:n.tests){
                                         end = curr.subset$end.pos,
                                         genome = "hg38", chromosome = "chr8",
                                         name = "-log10p (RV-TDT)",
-                                        ylim=c(-0.5, 3.5),
+                                        ylim=c(-0.5, 2),
                                         baseline=0, 
                                         col.baseline="black",
+                                        col.axis="black",
+                                        fontcolor="black",
                                         groups=factor(curr.test, levels=tests),
                                         legend=TRUE)       
 }
@@ -910,6 +912,10 @@ plot.types <- c("p",
 )
 plotTracks(all.tracks, background.title="darkgray", type = plot.types, from= from, to=to)
         
+```
+
+```{r fig2, fig.height = 10, fig.width = 10, fig.align = "center"}
+plotTracks(all.tracks, background.title="darkgray", type = plot.types, from= from, to=to)
 ```
 
 
