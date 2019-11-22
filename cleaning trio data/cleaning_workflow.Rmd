@@ -59,7 +59,7 @@ install.packages("ggplot2")
 
 Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
 
-# Indexing the VCF file
+# Indexing the VCF file to read in subsets of a VCF
 
 If your VCF file is very large, or you plan on filtering the VCF for rare variant analysis, Tabix indexing the VCF prior to analysis is highly recommended. Tabix indexing allows us to efficiently read in small parts  as well as filter the VCF using the Bioconductor package `VariantAnnotation`.
 
@@ -71,6 +71,21 @@ fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
 fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
 fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
 ```
+## Reading in a subset of a Tabix-indexed VCF
+
+If you want to read in a subset of a VCF, you can use the following code:
+
+```{r,eval=FALSE}
+fp.vcf <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf"
+fp.vcf.bgz <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf.bgz"
+
+fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
+fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
+fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
+
+```
+## Reading in a subset of a Tabix-indexed VCF
+
 
 # Cleaning your VCF file prior to analysis
 

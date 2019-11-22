@@ -20,7 +20,7 @@ knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Re
 
 # Introduction
 
-In this workflow, we will perform an example trio analysis on a small dataset of case-parent trios, that have been cleaned and phased. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the [cleaning trio data workflow](link) is highly recommended.
+In this workflow, we will perform an example trio analysis on a small dataset of case-parent trios, that have been cleaned and phased. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the [cleaning trio data workflow](https://github.com/lindagai/workflows/tree/master/cleaning%20trio%20data) is highly recommended.
 
 We first perform common variants analysis using the `trio` package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results. 
 
@@ -41,7 +41,6 @@ library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 #CRAN
 library(dplyr)
 library(ggplot2)
-library(rvTDT)
 ```
 
 If you do not have them, run the following code:
@@ -72,7 +71,7 @@ RV-TDT can be installed and run on Linux and Mac OS X. Download the source code 
 #### Install rvtrio (R wrapper function)
 You will need to give the filepath to RV-TDT to use the R wrapper function `RV_TDT` in `rvtrio`. To install rvtrio, run the following code:
 
-```{r,eval = FALSE}
+```{r, warning=FALSE, message=FALSE}
 devtools::install_github("lindagai/rvtrio")
 library(rvtrio)
 ```
@@ -380,7 +379,7 @@ ggplot(aTDT.df)+
 A popular package for visualization genomic results is [Gviz](https://bioconductor.org/packages/release/bioc/html/Gviz.html). Here, we demonstrate how to create a simple graph in Gviz that compares results from the allelic and genotypic TDT results.
 
 
-First, we set up initial ideograms of the genomic region and its associated genes:
+#### Set up initial ideograms of the genomic region
 
 ```{r}
 #Basic information about the genetic region
@@ -397,7 +396,10 @@ itrack <- IdeogramTrack(genome = gen, chromosome = chr, showBandId = TRUE,
                         )
 
 gtrack <- GenomeAxisTrack()
+```
 
+#### Add the gene region track
+```{r}
 txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
 #Get the gene region track for the database results in the relevant region
@@ -408,7 +410,7 @@ txTr <- GeneRegionTrack(txdb, genome = gen, chromosome = chr,
                         )
 ```
 
-We then add our results from gTDT and aTDT:
+#### Add gTDT results
 
 ```{r}
 #A. gTDT track
@@ -416,8 +418,6 @@ filepath.genotypic.tdt.results <- "./results/common_var/gTDT.results.txt"
 genotypic.tdt.results <- read.table(filepath.genotypic.tdt.results,header=TRUE)
 genotypic.tdt.results %>% head
 log10p.gTDT <- -log10(genotypic.tdt.results$pval)
-
-genotypic.tdt.results %>% head
 
 dtrack.gTDT <- DataTrack(data=log10p.gTDT,
                          start=genotypic.tdt.results$pos-1,
@@ -430,8 +430,11 @@ dtrack.gTDT <- DataTrack(data=log10p.gTDT,
                          cex.title=1, col.title="black", 
                          col.axis="black")
 
-#B. aTDT track
+```
 
+#### Add aTDT results
+
+```{r}
 filepath.allelic.tdt.results<-"./results/common_var/aTDT.results.txt"
 allelic.tdt.results <- read.table(filepath.allelic.tdt.results,header=TRUE)
 allelic.tdt.results  %>% head
@@ -449,7 +452,8 @@ dtrack.aTDT <- DataTrack(data=log10p.aTDT,
                          col.axis="black")
 ```
 
-Finally, we build the graph:
+#### Build the graph:
+
 ```{r}
 plotTracks(list(itrack,
                 txTr,
@@ -634,7 +638,7 @@ Annotating a VCF with EnsemblVEP allows the user to use the excellent VCF filter
 
 ##### **AnnotationHub**
 
-[AnnotationHub](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) is another well-documented package that allows R users to . Note that most of the most updated annotation databases for humans (e.g. annotation databases for hg38) are for evolutionary conservation (e.g. PhyloPhen), not functional annotation or deleteriousness (e.g. CADD or PolyPhen).
+[AnnotationHub](https://bioconductor.org/packages/release/bioc/html/AnnotationHub.html) is another [well-documented](https://kasperdanielhansen.github.io/genbioconductor/html/AnnotationHub.html) Bioconductor package that allows R users to easily access several annotation databases. Note that, as of August 2019, most of the most updated annotation databases for humans (e.g. annotation databases for hg38) are for evolutionary conservation (e.g. PhyloPhen), not functional annotation or deleteriousness (e.g. CADD or PolyPhen).
 
 #### External software for annotation
 
@@ -699,17 +703,11 @@ RV_TDT.results <- rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped, rv.tdt.dir = filepath.t
 head(RV_TDT.results)
 ```
 
-```{r, eval=FALSE}
+```{r}
 #Save, if desired
 fp.rv_tdt.results <- paste0("./results/rare_var/RV_TDT.", win.size, "M.txt")
 write.table(RV_TDT.results, fp.rv_tdt.results, sep = "        ", quote = FALSE, row.names = FALSE)
 head(RV_TDT.results)
-```
-
-### rvTDT
-
-```{r}
-#wrapper functions in progress
 ```
 
 ## Visualization
@@ -730,12 +728,7 @@ RV_TDT.results.long %>% head
 
 As we are testing multiple windows, we need to perform a Bonferonni correction on the significance level, shown in the graph below.
 
-```{r, echo=FALSE}
-#Remove this after you fix this package
-RV_TDT.results.long$start.pos <- as.numeric(RV_TDT.results.long$start.pos)
-RV_TDT.results.long$end.pos <- as.numeric(RV_TDT.results.long$end.pos)
-RV_TDT.results.long$mid.window.pos <- as.numeric(RV_TDT.results.long$mid.window.pos)
-```
+
 
 ```{r}
 #Bonferroni corrected
@@ -753,34 +746,182 @@ ggplot() +
                         guide = guide_legend(override.aes = list(color = c("red"))))
 ```
 
-#### rvTDT
+### Comparison across methods
+
+To compare the results from the common variants analysis to the rare variants analyses directly, we can use the GViz package. 
+
+#### Basic gene tracks
 
 ```{r}
-#wrapper functions in progress
+chr <- "chr8"
+from <- 141000000
+to <- 141030000
+regCode <- "8q24"
+gen <- "hg38"
+
+#Set up initial tracks
+itrack <- IdeogramTrack(genome = gen, chromosome = chr, showBandId = TRUE,
+                        cex.bands=0.8#, 
+                        #showID=TRUE
+)
+
+gtrack <- GenomeAxisTrack()
+
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+#Get the gene region track for the database results in the relevant region
+txTr <- GeneRegionTrack(txdb, genome = gen, chromosome = chr,
+                        start = from, end = to, name = "Genes", showId=TRUE,
+                        geneSymbols=TRUE, collapseTranscripts="meta", 
+                        col.title="black", cex.title=0.8#, cex.group=0.8
+)
 ```
 
-### Comparison across methods
-#### Gviz
-*Gviz* is a popular package to visualize genomics results.
+#### Optional: Common variants analysis tracks
+We then add the tracks used in the [common variants analysis](# Common variants analysis).
+        
+```{r}
+        
+#A. gTDT track
+filepath.genotypic.tdt.results <- "./results/common_var/gTDT.results.txt"
+genotypic.tdt.results <- read.table(filepath.genotypic.tdt.results,header=TRUE)
+genotypic.tdt.results %>% head
+log10p.gTDT <- -log10(genotypic.tdt.results$pval)
 
-####  Alternative visualization packages
-Tutorials for alternative visualization packages are beyond the scope of this workflow. But some possible options are snp.plotter, LocusZoom, and qqman.
+genotypic.tdt.results %>% head
+
+dtrack.gTDT <- DataTrack(data=log10p.gTDT,
+                         start=genotypic.tdt.results$pos-1,
+                         end=genotypic.tdt.results$pos,
+                         genome="hg38", chromosome="chr8",
+                         name= "-log10p (gTDT)",
+                         ylim=c(-0.5,2),
+                         baseline=0, v=0, col.line="grey92",
+                         cex=2,
+                         cex.title=1, col.title="black", 
+                         col.axis="black")
+
+#B. aTDT track
+filepath.allelic.tdt.results<-"./results/common_var/aTDT.results.txt"
+allelic.tdt.results <- read.table(filepath.allelic.tdt.results,header=TRUE)
+allelic.tdt.results  %>% head
+log10p.aTDT <- -log10(allelic.tdt.results$pval)
+
+dtrack.aTDT <- DataTrack(data=log10p.aTDT,
+                         start = allelic.tdt.results$pos-1,
+                         end = allelic.tdt.results$pos,
+                         genome="hg38", chromosome="chr8",
+                         name= "-log10p (aTDT)",
+                         ylim=c(-0.5,2),
+                         baseline=0, v=0, col.line="grey92",
+                         cex=2,
+                         cex.title=1, col.title="black", 
+                         col.axis="black")
+        
+```
+
+#### Transmitted rare variants track
+
+`rvtrio` includes a function, `getTransmittedRareVarCounts`, that will calculate the number of times a rare variant has been transmitted. We can use this function to create a graph of the number of times rare variants were transmitted:
+                
+```{r}
+fp.ped<-"./data/raw_data/hg38.ped.txt"
+ped <- read.table(fp.ped,header=TRUE)
+head(ped)
+
+#Read in phased VCF that is rare variants only
+#(i.e., only includes rare variants that you've included in your RV-TDT)
+filepath.phased.vcf <- "./data/processed_data/phased.vcf.gz"
+hg.assembly <- "hg38"
+vcf <- readVcf(filepath.phased.vcf, hg.assembly)
+table(geno(vcf)$GT)
+
+#Get # of rare variants that are transmitted from parents to offspring
+transmitted.rare.var.ct <- rvtrio::getTransmittedRareVarCounts(vcf, ped)
+
+#Transmitted rvs
+max.trans.rv <- max(transmitted.rare.var.ct$trans.ct)
+
+dtrack.transmitted.rv <- DataTrack(data=transmitted.rare.var.ct$trans.ct,
+                                   start=transmitted.rare.var.ct $pos-1,
+                                   end=transmitted.rare.var.ct$pos,
+                                   genome="hg38", chromosome="chr8",
+                                   name= "Transmitted Rare Variants",
+                                   cex.title=1, col.title="black",
+                                   ylim=c(-0.5, max.trans.rv + 1),
+                                   baseline=0, v=0, col.line="grey92",
+                                   col.axis="black")
+
+```
+
+#### RV-TDT track
+```{r}
+### Create the RV-TDT track
+
+#Read in results
+win.size <- 25
+fp.rv_tdt.results <- paste0("./results/rare_var/RV_TDT.", win.size, "M.txt")
+RV_TDT.results <- read.table(fp.rv_tdt.results, header=TRUE)
+
+#Convert to long format
+RV_TDT.results.long <- RV_TDT.results %>%
+        tidyr::gather(key = test, value = pval,
+                      CMC.Analytical,BRV.Haplo,CMC.Haplo,VT.BRV.Haplo,VT.CMC.Haplo,WSS.Haplo)
+
+#Plot all tests using an OverlayTrack
+tests <- levels(factor(RV_TDT.results.long$test))
+n.tests <- length(tests)
+
+rv_tdt.tracks <- vector(mode = "list", length = n.tests)
+
+for (i in 1:n.tests){
+        curr.test <- tests[i]
+        curr.subset <- RV_TDT.results.long %>%
+                filter(test == curr.test)
+        
+        rv_tdt.tracks[[i]] <- DataTrack(data = -log10(curr.subset$pval),
+                                        start = curr.subset$start.pos,
+                                        end = curr.subset$end.pos,
+                                        genome = "hg38", chromosome = "chr8",
+                                        name = "-log10p (RV-TDT)",
+                                        ylim=c(-0.5, 3.5),
+                                        baseline=0, 
+                                        col.baseline="black",
+                                        groups=factor(curr.test, levels=tests),
+                                        legend=TRUE)       
+}
+
+
+ot.rv_tdt.tracks <- OverlayTrack(trackList=rv_tdt.tracks)
+
+```
+
+##### Create graph
+```{r}
+all.tracks <- c(list(itrack,
+                     txTr,
+                     gtrack,
+                     dtrack.gTDT,
+                     dtrack.aTDT,
+                     dtrack.transmitted.rv), ot.rv_tdt.tracks)
+
+plot.types <- c("p",
+                rep("a", n.tests)
+)
+plotTracks(all.tracks, background.title="darkgray", type = plot.types, from= from, to=to)
+        
+```
+
 
 # Troubleshooting
 
 ## RV-TDT
 
 ### Segmentation fault: 11
-This is usually caused by one of the input files (ped, tped, or map) to RV-TDT not being formatted correctly. `rvtrio` provides some automatic checks for this, but you should double-check this on your own if you are still getting this error.
+This is usually caused by one of the input files (ped, tped, or map) to RV-TDT not being formatted correctly. `rvtrio` provides some automatic checks for this, but you should double-check the VCF and PED files on your own if you are still getting this error.
 
 ### Produces output file, but no results
-Possible explanations:
-
-1. **File sizes might be too large.**
-Generally, the tped file must be under 500 lines (i.e., only 500 SNPs can be analyzed at a time). Your windows may be too large -- try testing a smaller window size that contains fewer than 500 SNPs.
-
-2. **The whitespace is not tabs.**
-RV-TDT can only read in files that are tab-delimited. (But this shouldn't be a problem if you use the wrapper functions `rvtrio::RV_TDT`.)
+A possible explanation is that your file sizes might be too large for RV-TDT to handle. Try testing a smaller window size (e.g., test a window size < 500M, or use an input VCF that contains fewer than 500 SNPs).
 
 # Concluding remarks
 
