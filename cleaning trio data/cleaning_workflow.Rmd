@@ -18,6 +18,10 @@ vignette: |
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Research/workflows/cleaning trio data")
+```
+
 # Introduction
 
 In this workflow, we will clean an example dataset of cleft palate case-parent trios, consisting of markers from the 8q24 region, to prepare for trio analysis.
@@ -29,17 +33,12 @@ In this workflow, we will clean an example dataset of cleft palate case-parent t
 
 This workflow uses the following R packages:
 
-```{r,eval=FALSE}
+```{r, warning=FALSE, message=FALSE}
 #Bioconductor
 library(VariantAnnotation)
 library(trio)
 
 #CRAN
-library(dplyr)
-library(ggplot2)
-```
-
-```{r,echo=FALSE, message=FALSE, warning=FALSE}
 library(dplyr)
 library(ggplot2)
 ```
@@ -59,64 +58,71 @@ install.packages("ggplot2")
 
 Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
 
-# Indexing the VCF file to read in subsets of a VCF
+# Optional: Reading in subsets of a VCF
 
 If your VCF file is very large, or you plan on filtering the VCF for rare variant analysis, Tabix indexing the VCF prior to analysis is highly recommended. Tabix indexing allows us to efficiently read in small parts  as well as filter the VCF using the Bioconductor package `VariantAnnotation`.
 
+## Tabix-indexing a VCF
+First, we index the VCF using `indexTabix`:
 ```{r,eval=FALSE}
-fp.vcf <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf"
-fp.vcf.bgz <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf.bgz"
+filepath.vcf <- "./data/8q24.hg19.small.test.vcf"
+fp.vcf.bgz <- "./data/8q24.hg19.small.test.vcf.bgz"
 
 fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
 fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
 fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
 ```
+
 ## Reading in a subset of a Tabix-indexed VCF
+Now we can define the region of interest using a `GRanges` object:
 
-If you want to read in a subset of a VCF, you can use the following code:
+```{r, eval=FALSE}
+start.pos <- 130000000
+end.pos <- 130005000
 
-```{r,eval=FALSE}
-fp.vcf <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf"
-fp.vcf.bgz <- "/users/lgai/8q24_project/data/raw_data/vcfs/8q24.recode.vcf.bgz"
+rng <- GRanges(seqnames="chr8",
+               ranges=IRanges(
+                       start=c(start.pos),
+                       end=c(end.pos)
+               )
+)
 
-fp.zipped <- bgzip(fp.vcf, fp.vcf.bgz)
-fp.indexed.tabix <- indexTabix(fp.zipped, format = "vcf")
-fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
+hg.assembly <- "hg38"
 
+vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
+
+#Write out small region of interest
+#Here, the entire VCF is contained within the region of interest
+# so it's the same file and we do not change the filename
+filepath.vcf<-"./data/processed_data/8q24.small.test.vcf"
+writeVcf(vcf.rng,filepath.vcf)
 ```
-## Reading in a subset of a Tabix-indexed VCF
-
 
 # Cleaning your VCF file prior to analysis
 
 ## Example data set
 
-For the example analysis, we will begin by cleaning a raw VCF dataset consisting of 996 case-parent trios affected with cleft lip, with or without cleft palate (CL/P) with 10 SNPs.
+For the example analysis, we will begin by cleaning a raw VCF dataset consisting of 996 case-parent trios affected with cleft lip, with or without cleft palate (CL/P) with 110 SNPs. (Note that the genotype entries have been modified from the original data to better illustrate the process of data cleaning.)
 
-```{r,eval = FALSE}
-filepath.vcf <- "/dcl01/beaty/data/gmkf/euro/vcfs/filtered/8q24.recode.vcf"
+```{r}
+filepath.vcf <- "./data/8q24.hg19.small.test.vcf"
 hg.assembly <- "hg19"
 vcf <- VariantAnnotation::readVcf(filepath.vcf, hg.assembly)
+vcf
 ```
 
 To start with, we need to check to make sure the VCF is clean and in the correct format. We first check the genotype entries to ensure that they are in the correct format:
 
-```{r,eval = FALSE}
+```{r}
 table(geno(vcf)$GT)
-```
-
-```{r,echo = FALSE}
-filepath.table.raw <- "/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/table.raw.vcf.RDS"
-table.raw<-readRDS(filepath.table.raw)
-table.raw
 ```
 
 `geno` is an accessor function that obtains genotype data described in the `FORMAT` fields of the VCF, and `GT` is the matrix of genotypes for each individual. Each entry in `GT` gives the genotype for a particular individual at a particular SNP. Each row in `GT` corresponds to a particular SNP, and each column corresponds to an individual (or sample). Additional information on using `VariantAnnotation` for manipulating VCFs can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/VariantAnnotation/inst/doc/VariantAnnotation.pdf).
 
 ## Missing and half-calls
-Looking at the above output, we can see that we have many missing calls (`.`), as well as half-calls (`0/.` and `1/.`). Half-calls should be set to missing, and a delimiter should be added, since phasing and imputation software like BEAGLE require a delimiter between the alleles to read in the VCF.
+Looking at the above output, we can see that we have missing calls (`.`), as well as half-calls (`0/.` and `1/.`). Half-calls should be set to missing, and a delimiter should be added, since, if you plan on imputing missing values and phasing, phasing software like BEAGLE require a delimiter between the alleles to read in the VCF.
 
-```{r,eval = FALSE}
+```{r}
 geno(vcf)$GT[geno(vcf)$GT == "."] <- "./."
 geno(vcf)$GT[geno(vcf)$GT == "1/."] <- "./."
 geno(vcf)$GT[geno(vcf)$GT == "0/."] <- "./."
@@ -125,7 +131,7 @@ geno(vcf)$GT[geno(vcf)$GT == "0/."] <- "./."
 ## Remove duplicated sites and multi-allelic SNPs
 Most trio analysis methods are only for bi-allelic SNPs, so we remove multi-allelic sites with the code below.
 
-```{r,eval = FALSE}
+```{r}
 duplicate.sites <- start(rowRanges(vcf))[duplicated(start(rowRanges(vcf)))]
 
 #How many sites are in the raw VCF?
@@ -140,6 +146,43 @@ vcf <- vcf[-which(start(rowRanges(vcf)) %in% duplicate.sites),]
 `start(rowRanges(vcf))` accesses the genomic position for each genotype in the VCF. 
 
 A thorough understanding of the other functions described in the above block of code is not necessary for understanding the rest of this workflow, but is helpful for understanding how VCF files are organized and how genomic information in Bioconductor-style objects. `rowRanges` accesses information from the [CHROM, POS, and ID fields of the VCF file](https://grunwaldlab.github.io/Population_Genetics_in_R/reading_vcf.html), which is represented as a `GRanges` object. `GRanges` objects are used to store genomic locations within the Bioconductor project. A good introduction to `GRanges` objects can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/GenomicRanges/inst/doc/GenomicRangesIntroduction.html).
+
+## Check for Hardy-Weinberg equilibrium
+
+We can check for Hardy-Weinberg equilibrium in the SNPs using `VariantAnnotation`'s `snpSummary` function.
+
+```{r}
+snp.summary <- snpSummary(vcf) %>%
+        tibble::rownames_to_column(var = "snp") 
+
+#Set the rownames as a column so dplyr will preserve them
+snp.summary %>%
+        dplyr::arrange(HWEpvalue) %>%
+        head
+```
+
+No SNPs are significant ($p < 0.05$), so we don't remove them in this case. However, if we wanted to remove them, you can use the following code:
+
+```{r, eval=FALSE}
+snps.to.remove <- snp.summary %>%
+        select(snp, HWEpvalue) %>%
+        filter(HWEpvalue < 0.05) %>%
+        select(snp) %>%
+        unlist  
+
+vcf <- vcf[-which(names(rowRanges(vcf)) %in% snps.to.remove),]
+```
+
+## Calculate missingness per variant
+`trio` automatically excludes SNPs with at least one missing genotype entry (e.g., `./.`, `1/.`, or `0/.`) from analysis.
+
+If you have many SNPs with missing entries, you might want to consider imputing the missing observations with BEAGLE 4.0.
+
+```{r,eval = FALSE}
+#Create trio.geno
+#Calculate missingness per column
+#Decide whether you want to impute missing values using BEAGLE or not 
+```
 
 ## Write out
 Depending on the size of your file and the power of your computer, even reading in the VCF and checking for missing observations can be quite time-consuming. As such, it can be a good idea to write out the VCF after each time-consuming step:
@@ -169,16 +212,9 @@ Note that this is the same format as the first 6 columns of the PLINK PED file, 
 
 The raw PED file accompanying the test VCF is shown below:
 
-```{r,eval = FALSE}
-filepath.ped <- "/dcl01/beaty/data/gmkf/euro/peds/gmkf_euro_completetrios.csv"
+```{r}
+filepath.ped <- "./data/gmkf_euro_completetrios.csv"
 ped <- read.csv(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
-head(ped)
-```
-
-```{r,echo = FALSE}
-filepath.ped <- "/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/gmkf_euro_completetrios.csv"
-ped <- read.csv(filepath.ped,header=TRUE)
-#ped <- read.csv(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
 head(ped)
 ```
 
@@ -209,7 +245,7 @@ ped <- ped %>%
         mutate(sex = ifelse(sex == "male", 1, 0)) %>%
         mutate(affected = ifelse(affected == "Affected", 1, 0))
 
-head(ped)
+ped %>% head
 ```
 
 ## Ensure the all PIDs in the VCF and PED files match in format
@@ -217,18 +253,15 @@ All subjects in the VCF must also appear (with the same ID) in the PED file, and
 
 We first manually check to see if the first few PIDs in the PED and VCF look the same:
 
-```{r,eval = FALSE}
+```{r}
 #Examine PIDs in VCF and PED
 vcf.pid <- colnames(geno(vcf)$GT)
-head(vcf.pid)
-```
-```{r,echo = FALSE}
-filepath.vcf.ids <- "/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/raw.vcf.PID.RDS"
-vcf.pid <- readRDS(filepath.vcf.ids)
-head(vcf.pid)
+vcf.pid %>% head
 ```
 ```{r}
-head(ped$pid)
+ped$pid %>% 
+        factor %>%
+        head
 ```
 
 Clearly, the VCF PIDs are different from the PED PIDs. Closer examination reveals that the PIDs in the VCF look like the pids from the PED pasted together twice, with a prefix of "HTZ-". Modify the PED PIDs accordingly:
@@ -290,44 +323,27 @@ filepath.ped.cleaned <- "your filepath here"
 write.table(ped, filepath.ped.cleaned, sep=" ", col.names = TRUE, row.names = FALSE,quote = FALSE)
 ```
 
-# Calculate missingness per variant
-`trio` automatically excludes SNPs with at least one missing genotype entry (e.g., `./.`, `1/.`, or `0/.`) from analysis.
-
-If you have many SNPs with missing entries, you might want to consider imputing the missing observations with BEAGLE 4.0.
-
-```{r,eval = FALSE}
-#Create trio.geno
-#Calculate missingness per column
-#Decide whether you want to impute missing values using BEAGLE or not 
-```
-
 # Checking for Mendelian errors
 
 Mendelian errors can be identified with the `trio.check` function in `trio`, which accepts genotype data in `trio.geno` format. We convert the VCF and PED into geno format like so:
 
-```{r,eval = FALSE}
-trio.geno<-vcf2geno(vcf,ped)
+```{r}
+trio.geno <- vcf2geno(vcf, ped)
 trio.geno[1:5,1:5]
-```
-```{r,echo = FALSE}
-filepath.trio.geno<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/trio.geno.output.RDS"
-trio.geno<-readRDS(filepath.trio.geno)
-trio.geno
 ```
 
 ## Formatting the VCF for `trio.check`
 
-Note that `trio.check` can only read in entries of the form: `"0/0"`, `"0/1"`, or `"1/1"`; missing entries (`NA` or `./.`) are not accepted. You can check the entries of the genotypes in matrix using `table()`:
+Note that `trio.check` can only read in entries of the form: `"0/0"`, `"0/1"`, or `"1/1"`; missing entries (`NA` or `./.`) are not accepted. `vcf2geno` automatically gets rid of SNPs with missing entries for you, but you can check the entries of the genotypes in the `trio.geno` matrix using `table()`:
 
-```{r,eval = FALSE}
-table(trio.geno, useNA = TRUE)
+```{r}
+table(trio.geno, useNA = "always")
 ```
 ### Removing SNPs that have missing entries
-
 You can remove SNPs that have any missing entries with the below code:
 
 ```{r,eval = FALSE}
-trio.geno <- removeSNPs(geno, perc.na = 0)
+trio.geno <- removeSNPs(trio.geno, perc.na = 0.1)
 ```
 
 Check how many SNPs you have left with `dim`:
@@ -392,12 +408,34 @@ geno(vcf)$GT[geno(vcf)$GT == "1/0"] <- "0/1"
 
 ## Calculate Mendelian errors in each family
 
-Now we can run `trio::trio.check` to check for Mendelian errors:
+We can run `trio::trio.check` to check for Mendelian errors.  First, we add `famid` and `pid` as the first 2 columns to the `trio.geno` matrix, to format the data for `trio.check`.
 
-```{r,eval = FALSE}
-trio.tmp <- trio::trio.check(dat=trio.geno,is.linkage=FALSE)
+```{r}
+geno.with.pid <- cbind(rownames(trio.geno), trio.geno)
+colnames(geno.with.pid)[1] <- c("pid")
+geno.with.pid[1:5,1:5]
+
+#Left_join to ensure that the FAMID corresponding to the PIDs in trio.geno are correct
+geno.with.famid <- dplyr::left_join(data.frame(ped[, c("famid", "pid")]), 
+                                    data.frame(geno.with.pid)) 
+geno.with.famid[1:5,1:5]
+
+#Make sure the genotype entries are numeric
+n.col <- ncol(geno.with.famid)
+geno.with.famid[, 3:n.col] <- lapply(geno.with.famid[, 3:n.col], as.character)
+geno.with.famid[, 3:n.col] <- lapply(geno.with.famid[, 3:n.col], as.numeric)
+geno.with.famid[1:5,1:5]
+```
+
+Now we can run `trio::trio.check`:
+
+```{r}
+trio.tmp <- trio::trio.check(dat=geno.with.famid, is.linkage=FALSE)
 #takes a long time to run!
+```
 
+We can look at `trio.tmp$errors$famid` to examine the number of Mendelian errors per family:
+```{r}
 #This code will not run if there are no Mendelian errors
 mend.err.sorted<-as.data.frame(sort(table(trio.tmp$errors$famid),
                                     decreasing = TRUE))
@@ -405,26 +443,13 @@ colnames(mend.err.sorted)<-c("famid","mend.errors")
 mend.err.sorted[1:10,]
 ```
 
-```{r,echo = FALSE, eval=FALSE}
-filepath.trio.tmp.errors<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/"
-trio.tmp<-readRDS(filepath.trio.tmp.errors)
-
-mend.err.sorted<-as.data.frame(sort(table(trio.tmp$errors$famid),decreasing = TRUE))
-colnames(mend.err.sorted)<-c("famid","mend.errors")
-mend.err.sorted[1:10,]
-```
-```{r,echo = FALSE}
-filepath.mend.err.sorted<-"/Users/lindagai 1/Documents/classes/4th year/Research/rvtrio/data/mend.err.sorted.RDS"
-
-mend.err.sorted<-readRDS(filepath.mend.err.sorted)
-mend.err.sorted[1:10,]
-```
 ### Graph Mendelian errors per family
-
+To graph the Mendelian errors, we'll use :
 ```{r}
-ggplot(mend.err.sorted, aes(x=famid,y=mend.errors)) +
+n.snps <- ncol(trio.geno)
+ggplot(mend.err.sorted, aes(x=famid,y=mend.errors/n.snps)) +
         geom_bar(stat="identity") +
-        xlab("Family ID") + ylab("Mendelian error count") +
+        xlab("Family ID") + ylab("Percentage of all SNPs that have Mendelian errors") +
         theme(axis.text.x=element_blank(),
               axis.ticks.x=element_blank()
               )
@@ -433,38 +458,25 @@ ggplot(mend.err.sorted, aes(x=famid,y=mend.errors)) +
 #### Graph Mendelian errors per family at the extreme end
 We'll graph the families with the 20 highest number of errors to examine the extreme end:
 ```{r}
-ggplot(mend.err.sorted[1:20,], aes(x=famid,y=mend.errors)) +
+ggplot(mend.err.sorted[1:20,], aes(x=famid,y=mend.errors/n.snps)) +
         geom_bar(stat="identity") +
         xlab("Family ID") + ylab("Mendelian error count") +
         theme(axis.text.x=element_text(angle = 90)
         )
 ```
 
-### Graph percentage of Mendelian errors per family
-An alternative approach is to graph the percentage of Mendelian errors per family, and remove individuals with a high % of Mendelian errors, rather than high error counts.
-
-```{r}
-#Create another DF column with percentage of errors
-#Graph with ggplot2
-```
-
 ### Remove families with high number of Mendelian errors in PED file
 
-Based on the graph of the Mendelian error counts, there are 5 families with considerably more Mendelian errors than the rest. We will need to remove them in both the VCF and in the PED file.
+Based on the graph of the Mendelian error counts, there are 3 families that have the highest Mendelian error rate (15%). To remove them from analysis, we will need to remove these families in both the VCF and in the PED file.
 
 Remove the individuals in the PED file, and write it out:
 
-```{r,eval = FALSE}
-#Remove families with large number of Mendelian errors from PED
-filepath.ped<-"/users/lgai/8q24_project/data/processed_data/gmkf_euro_completetrios_07_01_2019.txt"
-ped <- read.table(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
-```
 ```{r}
 #Check how many families there are in the raw PED
 dim(ped)
 
 #Get the famids of the families to be removed
-fam.rm<-as.character(mend.err.sorted[1:5,1])
+fam.rm <- as.character(mend.err.sorted[1:3,1])
 fam.rm
 
 #Get the PIDs of the individuals in the families to be removed
@@ -498,20 +510,14 @@ length(pids.to.keep)
 
 We use the `param` argument in `readVcf()` to filter the phased VCF to only the PIDs from families without a large number of Mendelian errors.
 
-```{r,eval = FALSE}
-
-filepath.formatted.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.cleaned.07_1_19.phased.formatted.vcf"
-hg.assembly<-"hg19"
-
-vcf <- VariantAnnotation::readVcf(filepath.formatted.vcf, hg.assembly,
+```{r, eval = FALSE}
+vcf <- VariantAnnotation::readVcf(filepath.vcf, hg.assembly,
                                   param = ScanVcfParam(sample = pids.to.keep),
 )
 
-filepath.common.vcf<-"/users/lgai/8q24_project/data/processed_data/vcfs/8q24.common.var.07_25_19.vcf"
+filepath.cleaned.vcf <- "./data/processed_data/vcfs/cleaned.vcf"
 writeVcf(vcf,filepath.common.vcf)
 ```
-
-# Check for Hardy-Weinberg equilibrium
 
 # Summary
 Once you have gone through this workflow, you should have the following files:
