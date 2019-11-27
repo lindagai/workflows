@@ -1,5 +1,5 @@
 ---
-title: "Cleaning trio data"
+title: "Cleaning trio data in VCF file and PED format for common and rare variants analysis"
 author:
 - name: Linda Gai
   affiliation: Johns Hopkins School of Public Health
@@ -24,7 +24,7 @@ knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Re
 
 # Introduction
 
-In this workflow, we will clean an example dataset of cleft palate case-parent trios, consisting of markers from the 8q24 region, to prepare for trio analysis.
+In this workflow, we will clean an example dataset of 996 cleft palate case-parent trios, consisting of 110 markers from a small region in chromosome 8, to prepare for trio analysis.
 
 # Setup
 
@@ -64,7 +64,12 @@ If your VCF file is very large, or you plan on filtering the VCF for rare varian
 
 ## Tabix-indexing a VCF
 First, we index the VCF using `indexTabix`:
-```{r,eval=FALSE}
+
+```{r, eval=FALSE}
+# NOTE: none of the functions here will overwrite existing files,
+# so if you've already created the .bgz and .tbi files,
+# this code block will not run
+
 filepath.vcf <- "./data/8q24.hg19.small.test.vcf"
 fp.vcf.bgz <- "./data/8q24.hg19.small.test.vcf.bgz"
 
@@ -74,7 +79,7 @@ fp.tabix <- TabixFile(fp.zipped, fp.indexed.tabix)
 ```
 
 ## Reading in a subset of a Tabix-indexed VCF
-Now we can define the region of interest using a `GRanges` object:
+Now we can define the region of interest using a `GRanges` object `rng`:
 
 ```{r, eval=FALSE}
 start.pos <- 130000000
@@ -86,8 +91,12 @@ rng <- GRanges(seqnames="chr8",
                        end=c(end.pos)
                )
 )
+```
 
-hg.assembly <- "hg38"
+Finally, we can read in only the subset of the VCF we are interested in, by setting `readVcf`'s `param` to the set of ranges in `rng`.
+
+```{r, eval=FALSE}
+hg.assembly <- "hg19"
 
 vcf.rng <- readVcf(fp.tabix, hg.assembly, param=rng)
 
@@ -119,8 +128,10 @@ table(geno(vcf)$GT)
 
 `geno` is an accessor function that obtains genotype data described in the `FORMAT` fields of the VCF, and `GT` is the matrix of genotypes for each individual. Each entry in `GT` gives the genotype for a particular individual at a particular SNP. Each row in `GT` corresponds to a particular SNP, and each column corresponds to an individual (or sample). Additional information on using `VariantAnnotation` for manipulating VCFs can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/VariantAnnotation/inst/doc/VariantAnnotation.pdf).
 
-## Missing and half-calls
-Looking at the above output, we can see that we have missing calls (`.`), as well as half-calls (`0/.` and `1/.`). Half-calls should be set to missing, and a delimiter should be added, since, if you plan on imputing missing values and phasing, phasing software like BEAGLE require a delimiter between the alleles to read in the VCF.
+## Optional: missing and half-calls
+Looking at the above output, we can see that we have missing calls (`.`), as well as half-calls (`0/.` and `1/.`). If you don't plan on phasing, and don't plan on performing rare variants analysis, you can skip this part  -- during common variants analysis, `trio` will remove SNPs that contain missing entries automatically for you.
+
+But if you plan on [imputing missing values and phasing using phasing software](### Optional: Imputing missing SNP genotypes) -- which is required for rare variants analysis --  set the half-calls to missing, and change the `.` entries to `./.`, to ensure that BEAGLE can read in the VCF entries correctly.
 
 ```{r}
 geno(vcf)$GT[geno(vcf)$GT == "."] <- "./."
@@ -173,17 +184,6 @@ snps.to.remove <- snp.summary %>%
 vcf <- vcf[-which(names(rowRanges(vcf)) %in% snps.to.remove),]
 ```
 
-## Calculate missingness per variant
-`trio` automatically excludes SNPs with at least one missing genotype entry (e.g., `./.`, `1/.`, or `0/.`) from analysis.
-
-If you have many SNPs with missing entries, you might want to consider imputing the missing observations with BEAGLE 4.0.
-
-```{r,eval = FALSE}
-#Create trio.geno
-#Calculate missingness per column
-#Decide whether you want to impute missing values using BEAGLE or not 
-```
-
 ## Write out
 Depending on the size of your file and the power of your computer, even reading in the VCF and checking for missing observations can be quite time-consuming. As such, it can be a good idea to write out the VCF after each time-consuming step:
 
@@ -214,7 +214,7 @@ The raw PED file accompanying the test VCF is shown below:
 
 ```{r}
 filepath.ped <- "./data/gmkf_euro_completetrios.csv"
-ped <- read.csv(filepath.ped,header=TRUE,stringsAsFactors = FALSE)
+ped <- read.csv(filepath.ped,header=TRUE, stringsAsFactors = FALSE)
 head(ped)
 ```
 
@@ -328,28 +328,34 @@ write.table(ped, filepath.ped.cleaned, sep=" ", col.names = TRUE, row.names = FA
 Mendelian errors can be identified with the `trio.check` function in `trio`, which accepts genotype data in `trio.geno` format. We convert the VCF and PED into geno format like so:
 
 ```{r}
-trio.geno <- vcf2geno(vcf, ped)
+# allowDifference tells vcf2geno to not remove missing entries
+# If you still want the missing entries to remain, set it to FALSEE
+trio.geno <- vcf2geno(vcf, ped, allowDifference = TRUE)
 trio.geno[1:5,1:5]
 ```
 
 ## Formatting the VCF for `trio.check`
 
-Note that `trio.check` can only read in entries of the form: `"0/0"`, `"0/1"`, or `"1/1"`; missing entries (`NA` or `./.`) are not accepted. `vcf2geno` automatically gets rid of SNPs with missing entries for you, but you can check the entries of the genotypes in the `trio.geno` matrix using `table()`:
+Note that `trio.check` can only read in entries of the form: `"0/0"`, `"0/1"`, or `"1/1"`; missing entries (`NA` or `./.`) are not accepted. `vcf2geno` can automatically get rid of SNPs with missing entries for you, but you can check the how many missing entries there are in the `trio.geno` matrix using `table()`:
 
 ```{r}
 table(trio.geno, useNA = "always")
 ```
-### Removing SNPs that have missing entries
+
+### Removing SNPs that have a high rate of missingness
 You can remove SNPs that have any missing entries with the below code:
 
-```{r,eval = FALSE}
-trio.geno <- removeSNPs(trio.geno, perc.na = 0.1)
+```{r}
+missing.cutoff <- 0.01
+trio.geno <- removeSNPs(trio.geno, perc.na = missing.cutoff)
 ```
 
 Check how many SNPs you have left with `dim`:
-```{r,eval = FALSE}
+```{r}
 trio.geno %>% dim
 ```
+
+If you have many SNPs with a high rate of missingness (i.e., only a few SNPs are remaining), you might want to consider imputing the missing observations with BEAGLE 4.0.
 
 ### Optional: Imputing missing SNP genotypes
 
@@ -558,4 +564,8 @@ They should be `character` vectors. If they are `factor` or `numeric` vectors, `
 ped$pid <- as.character(ped$pid)
 ```
 
-Repeat this as needed for the other columns.
+or, `sapply` for all columns:
+
+```{r, eval=FALSE}
+ped <- lapply(ped, as.character)
+```
