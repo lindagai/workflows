@@ -1,5 +1,5 @@
 ---
-title: "Cleaning trio data in VCF file and PED format for common and rare variants analysis"
+title: "Cleaning VCF data from case-parent trio studies for common and rare variants analysis"
 author:
 - name: Linda Gai
   affiliation: Johns Hopkins School of Public Health
@@ -20,11 +20,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r,echo=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Research/workflows/cleaning trio data")
+library(magick)
 ```
 
 # Introduction
 
-In this workflow, we will clean an example dataset of 996 cleft palate case-parent trios, consisting of 110 markers from a small region in chromosome 8, to prepare for trio analysis.
+In this workflow, we will clean an example VCF dataset of case-parent trios. After completing this workflow, an analyst can then follow the steps in the [trio analysis workflow](https://github.com/lindagai/workflows/tree/master/trio%20analysis) to test both common variants and rare variants for association with increased disease risk.
+
+Our example dataset consists of whole-genome-sequencing data, containing 110 SNPs on a small region of chromosome 8, from 332 cleft palate case-parent trios (996 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of European descent, and the data has genome build hg19.
 
 # Setup
 
@@ -172,7 +175,7 @@ snp.summary %>%
         head
 ```
 
-No SNPs are significant ($p < 0.05$), so we don't remove them in this case. However, if we wanted to remove them, you can use the following code:
+No SNPs are significant (p < 0.05), so we don't remove them in this case. However, if we wanted to remove them, you can use the following code:
 
 ```{r, eval=FALSE}
 snps.to.remove <- snp.summary %>%

@@ -20,11 +20,11 @@ knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Re
 
 # Introduction
 
-In this workflow, we will perform an example trio analysis on a small dataset of case-parent trios, that have been cleaned and phased. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the [cleaning trio data workflow](https://github.com/lindagai/workflows/tree/master/cleaning%20trio%20data) is highly recommended.
+In this workflow, we will perform an example trio analysis on a VCF dataset of case-parent trios that has already undergone basic cleaning. If your datasets are not clean (or even if they are!), double-checking for cleanliness by consulting the [cleaning trio data workflow](https://github.com/lindagai/workflows/tree/master/cleaning%20trio%20data) is highly recommended.
 
-We first perform common variants analysis using the `trio` package from Bioconductor. We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using annotation and position information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results. 
+We first perform common variants analysis using the `trio` [package from Bioconductor](https://www.bioconductor.org/packages/release/bioc/html/trio.html). We then show how to perform rare variants analysis: we first filter the rare variants sets into more informative variant sets, using position or annotation information, to increase power of the statistical tests. We then perform transmission disequilibrium tests for common variants using the trio package, and perform rare variant trio analysis using RV-TDT (Linux or Mac OS X required). Finally, we outline a few methods for plotting the results.
 
-Our example dataset consists of whole-genome-sequencing data from 265 cleft palate case-parent trios (795 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of Latino dataset, and the data has genome build hg38. 
+Our example dataset consists of whole-genome-sequencing data, containing 371 SNPs on a small region of chromosome 8, from 265 cleft palate case-parent trios (795 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of Latino descent, and the data has genome build hg38.
 
 # Setup
 ## R packages
@@ -55,7 +55,6 @@ BiocManager::install(c("VariantAnnotation", "trio",
 #CRAN
 install.packages("dplyr")
 install.packages("ggplot2")
-install.packages("rvTDT")
 ```
 
 Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
@@ -71,7 +70,7 @@ RV-TDT can be installed and run on Linux and Mac OS X. Download the source code 
 #### Install rvtrio (R wrapper function)
 You will need to give the filepath to RV-TDT to use the R wrapper function `RV_TDT` in `rvtrio`. To install rvtrio, run the following code:
 
-```{r, warning=FALSE, message=FALSE}
+```{r, eval=FALSE, warning=FALSE, message=FALSE}
 devtools::install_github("lindagai/rvtrio")
 library(rvtrio)
 ```
@@ -92,8 +91,8 @@ For trio data, we recommend using [BEAGLE 4.0](https://faculty.washington.edu/br
 If you are using a Linux computing environment (e.g., most computing clusters), BEAGLE can be downloaded directly in the R console using the code chunk below:
 
 ```{r,eval = FALSE}
-filepath.beagle4<-"dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
-dl.beagle4<-paste0("wget -O ",filepath.beagle4," https://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
+filepath.beagle4 <- "dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
+dl.beagle4 <- paste0("wget -O ",filepath.beagle4," https://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
 system(dl.beagle4)
 ```
 
@@ -101,14 +100,14 @@ system(dl.beagle4)
 If you are running the code on Mac OS X, you will need to instead run
 
 ```{r,eval = FALSE}
-filepath.beagle4<-"dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
-dl.beagle4<-paste0("curl -o '",filepath.beagle4,"' http://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
-dl.beagle4
+filepath.beagle4 <- "dir/where/you/want/beagle4/to/go/beagle.r1399.jar"
+dl.beagle4 <- paste0("curl -o '",filepath.beagle4,"' http://faculty.washington.edu/browning/beagle/beagle.r1399.jar")
+system(dl.beagle4)
 ```
 
 # Common variants analysis {#test1}
 
-In this workflow, we will consider 3 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT), genotypic transmission disequilibrium test (gTDT), and Scan-Trio (in-progress). Both aTDT and gTDT can be performed using the [`trio` package](https://www.bioconductor.org/packages/release/bioc/html/trio.html). `trio` accepts both PLINK ped files and VCF files, but we will use VCF files for this workflow.
+In this workflow, we will consider 2 methods of common variant analysis: the allelic transmission disequilibrium test (aTDT) and genotypic transmission disequilibrium test (gTDT). Both aTDT and gTDT can be performed using the [`trio` package](https://www.bioconductor.org/packages/release/bioc/html/trio.html). `trio` accepts both PLINK ped files and VCF files, but we will use VCF files for this workflow.
 
 ## Select the genomic region you would like to analyze
 
@@ -213,7 +212,9 @@ Each block of 3 values is composed of the genotypes of the father, the mother, a
 The `geno` object can be created using the `vcf2geno` function. Note that SNPs with missing entries (`./.`) are removed automatically from analysis. Similarly, monomorphic SNPs are also automatically removed.
 
 ```{r}
-trio.geno <- trio::vcf2geno(vcf,ped)
+# allowDifference tells vcf2geno to not remove missing entries
+# If you still want the missing entries to remain, set it to FALSEE
+trio.geno <- vcf2geno(vcf, ped, allowDifference = TRUE)
 trio.geno[1:5,1:5]
 ```
 
