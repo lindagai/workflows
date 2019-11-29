@@ -582,7 +582,7 @@ If you have a priori information on whether a particular genomic region is linke
 ### Choosing a window size
 Another option to enrich signal is to adjust the window size (i.e., the number of "consecutive" markers in each test set). Disease-causing variants tend to be located relatively close together, compared to benign variants, so grouping together consecutive sets of variants is another option to aggregate together disease-risk from multiple variants (citation). The ideal size of the window can be selected on a priori knowledge and/or by trying multiple sizes. 
 
-For example, if you have already done a common variants analysis and discovered a region enriched with common variant signal, choosing a window size that contains the entire region could be a good idea. Another option would be to test windows of many sizes, ranging from 2-25 markers. Alternatively, one can just try many sizes and choose the window size -- in the original Scan-Trio paper (link), window sizes of 2-25 markers were tested.
+For example, if you have already done a common variants analysis and discovered a region enriched with common variant signal, choosing a window size that contains the entire region could be a good idea. Alternatively, one can just try many window sizes using a "scan-statistic" approach: in a [2012 paper by Ionita-Laza et al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3370275/), window sizes of 5-30 kB markers were deployed in the search for variants associateed with autism risk, ultimately identifying a 25 kB window in the LRP2 gene enriched with rare risk variants.
 
 ## Exploratory data analysis and filtering the VCF
 
