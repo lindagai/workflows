@@ -849,6 +849,7 @@ dtrack.transmitted.rv <- DataTrack(data=transmitted.rare.var.ct$trans.ct,
                                    genome="hg38", chromosome="chr8",
                                    name= "Transmitted Rare Variants",
                                    cex.title=1, col.title="black",
+                                   type = "p",
                                    ylim=c(-0.5, max.trans.rv + 1),
                                    baseline=0, v=0, col.line="grey92",
                                    col.axis="black")
@@ -911,7 +912,6 @@ all.tracks <- c(list(itrack,
 plot.types <- c("p",
                 rep("a", n.tests)
 )
-plotTracks(all.tracks, background.title="darkgray", type = plot.types, from= from, to=to)
         
 ```
 
