@@ -288,7 +288,7 @@ gTDT.df <- data.frame(
         names(gTDT.results$pval),
         gTDT.results$stat, 
         gTDT.results$pval
-        )
+        , stringsAsFactors = FALSE)
 colnames(gTDT.df)<-c("snp","stat","pval")
 
 gTDT.df <- gTDT.df %>% 
@@ -307,7 +307,7 @@ aTDT.results<-allelicTDT(trio.geno)
 ```
 ```{r}
 #Create dataframe of allelic TDT p-values and snp_names
-aTDT.df<-as.data.frame(cbind(aTDT.results$stat,aTDT.results$pval))
+aTDT.df <- data.frame(cbind(aTDT.results$stat,aTDT.results$pval), stringsAsFactors = FALSE)
 colnames(aTDT.df)<-c("stat","pval")
 
 aTDT.df <- aTDT.df %>%
@@ -332,9 +332,9 @@ svp <- ScanVcfParam(fixed="NA", info="NA", geno="NA")
 vcf.svp <- readVcf(fp.vcf, "hg38", svp)
 
 #Add SNP name and position to DF of results
-snp<-names(vcf.svp)
-pos<-start(rowRanges(vcf.svp))
-snp.pos.df<-data.frame(snp,pos)
+snp <- names(vcf.svp)
+pos <- start(rowRanges(vcf.svp))
+snp.pos.df <- data.frame(snp,pos, stringsAsFactors = FALSE)
 head(snp.pos.df)
 ```
 
@@ -344,7 +344,7 @@ We now merge the SNP/POS dataframe with the dataframe of results from aTDT and g
 gTDT.df<- left_join(gTDT.df,snp.pos.df)
 head(gTDT.df)
 
-aTDT.df <- data.frame(gTDT.df[,c("snp","pos")], aTDT.df)
+aTDT.df <- data.frame(gTDT.df[,c("snp","pos")], aTDT.df, stringsAsFactors = FALSE)
 head(aTDT.df)
 ```
 

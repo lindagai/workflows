@@ -386,7 +386,10 @@ phase.command
 system(phase.command)
 ```
 
-Edit the genotype entries of the phased VCF prior to running the common variants tests: `trio` can only read in genotype entries `"0/0"`, `"0/1"`, or `"1/1"`, whereas a BEAGLE-phased VCF will contain genotype entries `"0|0"`, `"0|1"`, `"1|0"`, and `"1|1"`.
+### Checking for correct formatting
+If you decide to phase, the genotype entries of the phased VCF must be reformatted prior to running the common variants tests, as well as prior to Mendelian error checking -- both of which use the `trio` package.
+
+`trio` can only read in genotype entries `"0/0"`, `"0/1"`, or `"1/1"`, whereas a BEAGLE-phased VCF will contain genotype entries `"0|0"`, `"0|1"`, `"1|0"`, and `"1|1"`. We can fix this with `gsub`:
 
 ```{r, eval=FALSE}
 phased.vcf <- readVcf(fp.phased.vcf, hg.assembly)
@@ -396,23 +399,13 @@ geno(phased.vcf)$GT <- gsub("\\|", "\\/",geno(phased.vcf)$GT)
 
 #Replace '0/1' with '0/1'
 geno(phased.vcf)$GT[geno(phased.vcf)$GT == "1/0"] <- "0/1"
+```
 
+Now, we can write it out:
+```{r, eval=FALSE}
 #Write out the phased VCF
 filepath.phased.var.vcf<-"./data/processed_data/phased.vcf"
 writeVcf(phased.vcf,filepath.phased.var.vcf)
-```
-
-Finally, re-create the `trio.geno` matrix and continue in the workflow as normal.
-
-### Checking for correct formatting
-If you need to reformat the entries of the VCF (e.g., if you have entries delimited with `|`, like `"0|0"`, or if you are using a phased VCF that has `"1/0"` entries), you can use `gsub` to replace any unwanted genotypes:
-
-```{r,eval = FALSE}
-#Replace '|' with '/'
-geno(vcf)$GT <- gsub("\\|", "\\/",geno(vcf)$GT)
-
-#Replace '0/1' with '0/1'
-geno(vcf)$GT[geno(vcf)$GT == "1/0"] <- "0/1"
 ```
 
 ## Calculate Mendelian errors in each family
@@ -420,13 +413,13 @@ geno(vcf)$GT[geno(vcf)$GT == "1/0"] <- "0/1"
 We can run `trio::trio.check` to check for Mendelian errors.  First, we add `famid` and `pid` as the first 2 columns to the `trio.geno` matrix, to format the data for `trio.check`.
 
 ```{r}
-geno.with.pid <- cbind(rownames(trio.geno), trio.geno)
+geno.with.pid <- data.frame(cbind(rownames(trio.geno), trio.geno), stringsAsFactors = FALSE)
 colnames(geno.with.pid)[1] <- c("pid")
 geno.with.pid[1:5,1:5]
 
 #Left_join to ensure that the FAMID corresponding to the PIDs in trio.geno are correct
 geno.with.famid <- dplyr::left_join(data.frame(ped[, c("famid", "pid")]), 
-                                    data.frame(geno.with.pid)) 
+                                    geno.with.pid) 
 geno.with.famid[1:5,1:5]
 
 #Make sure the genotype entries are numeric
@@ -446,7 +439,7 @@ trio.tmp <- trio::trio.check(dat=geno.with.famid, is.linkage=FALSE)
 We can look at `trio.tmp$errors$famid` to examine the number of Mendelian errors per family:
 ```{r}
 #This code will not run if there are no Mendelian errors
-mend.err.sorted<-as.data.frame(sort(table(trio.tmp$errors$famid),
+mend.err.sorted <- as.data.frame(sort(table(trio.tmp$errors$famid),
                                     decreasing = TRUE))
 colnames(mend.err.sorted)<-c("famid","mend.errors")
 mend.err.sorted[1:10,]

@@ -11,7 +11,6 @@
 
 
 
-<meta name="date" content="2019-11-27" />
 
 <title>Cleaning VCF data from case-parent trio studies for common and rare variants analysis</title>
 
@@ -187,7 +186,7 @@ summary {
 <p class="author-name">Linda Gai<span class="affil-mark">1*</span></p>
 <p class="author-affiliation"><span class="affil-mark">1</span>Johns Hopkins School of Public Health</p>
 <p class="author-email"><span class="affil-mark">*</span><a href="mailto:lindagai@jhu.edu">lindagai@jhu.edu</a></p>
-<h4 class="date">27 November 2019</h4>
+<h4 class="date">2 December 2019</h4>
 <h4 class="abstract">Abstract</h4>
 <p>Workflow for cleaning case-parent trio data to prepare for common and rare variants analysis.</p>
 
@@ -240,7 +239,7 @@ summary {
 
 <div id="introduction" class="section level1">
 <h1><span class="header-section-number">1</span> Introduction</h1>
-<p>In this workflow, we will clean an example VCF dataset of case-parent trios. After you completing this workflow, an analyst can then follow the steps in the <a href="https://github.com/lindagai/workflows/tree/master/trio%20analysis">trio analysis workflow</a> to test both common variants and rare variants for association with increased disease risk.</p>
+<p>In this workflow, we will clean an example VCF dataset of case-parent trios. After completing this workflow, an analyst can then follow the steps in the <a href="https://github.com/lindagai/workflows/tree/master/trio%20analysis">trio analysis workflow</a> to test both common variants and rare variants for association with increased disease risk.</p>
 <p>Our example dataset consists of whole-genome-sequencing data, containing 110 SNPs on a small region of chromosome 8, from 332 cleft palate case-parent trios (996 individuals) from the Gabriella Miller Kids First study. All individuals in the dataset are of European descent, and the data has genome build hg19.</p>
 </div>
 <div id="setup" class="section level1">
@@ -412,7 +411,7 @@ snp.summary %&gt;%
 ## 4 rs75212458 949  36   1 0.9807302 0.01926978 -1.0681651 0.2854460
 ## 5 rs10956456 585 355  46 0.7733266 0.22667343 -0.8468856 0.3970589
 ## 6  rs7008870 267 510 219 0.5240964 0.47590361 -0.8357083 0.4033190</code></pre>
-<p>No SNPs are significant (<span class="math inline">\(p &lt; 0.05\)</span>), so we don’t remove them in this case. However, if we wanted to remove them, you can use the following code:</p>
+<p>No SNPs are significant (p &lt; 0.05), so we don’t remove them in this case. However, if we wanted to remove them, you can use the following code:</p>
 <pre class="r"><code>snps.to.remove &lt;- snp.summary %&gt;%
         select(snp, HWEpvalue) %&gt;%
         filter(HWEpvalue &lt; 0.05) %&gt;%
@@ -649,55 +648,47 @@ system(dl.beagle4)</code></pre>
 phase.command
 
 system(phase.command)</code></pre>
-<p>Edit the genotype entries of the phased VCF prior to running the common variants tests: <code>trio</code> can only read in genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, or <code>&quot;1/1&quot;</code>, whereas a BEAGLE-phased VCF will contain genotype entries <code>&quot;0|0&quot;</code>, <code>&quot;0|1&quot;</code>, <code>&quot;1|0&quot;</code>, and <code>&quot;1|1&quot;</code>.</p>
+</div>
+</div>
+<div id="checking-for-correct-formatting" class="section level3">
+<h3><span class="header-section-number">6.1.3</span> Checking for correct formatting</h3>
+<p>If you decide to phase, the genotype entries of the phased VCF must be reformatted prior to running the common variants tests, as well as prior to Mendelian error checking – both of which use the <code>trio</code> package.</p>
+<p><code>trio</code> can only read in genotype entries <code>&quot;0/0&quot;</code>, <code>&quot;0/1&quot;</code>, or <code>&quot;1/1&quot;</code>, whereas a BEAGLE-phased VCF will contain genotype entries <code>&quot;0|0&quot;</code>, <code>&quot;0|1&quot;</code>, <code>&quot;1|0&quot;</code>, and <code>&quot;1|1&quot;</code>. We can fix this with <code>gsub</code>:</p>
 <pre class="r"><code>phased.vcf &lt;- readVcf(fp.phased.vcf, hg.assembly)
 
 #Replace '|' with '/'
 geno(phased.vcf)$GT &lt;- gsub(&quot;\\|&quot;, &quot;\\/&quot;,geno(phased.vcf)$GT)
 
 #Replace '0/1' with '0/1'
-geno(phased.vcf)$GT[geno(phased.vcf)$GT == &quot;1/0&quot;] &lt;- &quot;0/1&quot;
-
-#Write out the phased VCF
+geno(phased.vcf)$GT[geno(phased.vcf)$GT == &quot;1/0&quot;] &lt;- &quot;0/1&quot;</code></pre>
+<p>Now, we can write it out:</p>
+<pre class="r"><code>#Write out the phased VCF
 filepath.phased.var.vcf&lt;-&quot;./data/processed_data/phased.vcf&quot;
 writeVcf(phased.vcf,filepath.phased.var.vcf)</code></pre>
-<p>Finally, re-create the <code>trio.geno</code> matrix and continue in the workflow as normal.</p>
-</div>
-</div>
-<div id="checking-for-correct-formatting" class="section level3">
-<h3><span class="header-section-number">6.1.3</span> Checking for correct formatting</h3>
-<p>If you need to reformat the entries of the VCF (e.g., if you have entries delimited with <code>|</code>, like <code>&quot;0|0&quot;</code>, or if you are using a phased VCF that has <code>&quot;1/0&quot;</code> entries), you can use <code>gsub</code> to replace any unwanted genotypes:</p>
-<pre class="r"><code>#Replace '|' with '/'
-geno(vcf)$GT &lt;- gsub(&quot;\\|&quot;, &quot;\\/&quot;,geno(vcf)$GT)
-
-#Replace '0/1' with '0/1'
-geno(vcf)$GT[geno(vcf)$GT == &quot;1/0&quot;] &lt;- &quot;0/1&quot;</code></pre>
 </div>
 </div>
 <div id="calculate-mendelian-errors-in-each-family" class="section level2">
 <h2><span class="header-section-number">6.2</span> Calculate Mendelian errors in each family</h2>
 <p>We can run <code>trio::trio.check</code> to check for Mendelian errors. First, we add <code>famid</code> and <code>pid</code> as the first 2 columns to the <code>trio.geno</code> matrix, to format the data for <code>trio.check</code>.</p>
-<pre class="r"><code>geno.with.pid &lt;- cbind(rownames(trio.geno), trio.geno)
+<pre class="r"><code>geno.with.pid &lt;- data.frame(cbind(rownames(trio.geno), trio.geno), stringsAsFactors = FALSE)
 colnames(geno.with.pid)[1] &lt;- c(&quot;pid&quot;)
 geno.with.pid[1:5,1:5]</code></pre>
-<pre><code>##                    pid                  rs144270645 8:130000413_C/T
-## H_TZ-MD0021-MD0021 &quot;H_TZ-MD0021-MD0021&quot; &quot;0&quot;         &quot;0&quot;            
-## H_TZ-MD0020-MD0020 &quot;H_TZ-MD0020-MD0020&quot; &quot;0&quot;         &quot;0&quot;            
-## H_TZ-MD0019-MD0019 &quot;H_TZ-MD0019-MD0019&quot; &quot;0&quot;         &quot;0&quot;            
-## H_TZ-MD0024-MD0024 &quot;H_TZ-MD0024-MD0024&quot; &quot;0&quot;         &quot;0&quot;            
-## H_TZ-MD0023-MD0023 &quot;H_TZ-MD0023-MD0023&quot; &quot;0&quot;         &quot;0&quot;            
-##                    rs79076205 8:130000457_G/A
-## H_TZ-MD0021-MD0021 &quot;0&quot;        &quot;0&quot;            
-## H_TZ-MD0020-MD0020 &quot;0&quot;        &quot;0&quot;            
-## H_TZ-MD0019-MD0019 &quot;0&quot;        &quot;0&quot;            
-## H_TZ-MD0024-MD0024 &quot;0&quot;        &quot;0&quot;            
-## H_TZ-MD0023-MD0023 &quot;1&quot;        &quot;0&quot;</code></pre>
+<pre><code>##                                   pid rs144270645 X8.130000413_C.T
+## H_TZ-MD0021-MD0021 H_TZ-MD0021-MD0021           0                0
+## H_TZ-MD0020-MD0020 H_TZ-MD0020-MD0020           0                0
+## H_TZ-MD0019-MD0019 H_TZ-MD0019-MD0019           0                0
+## H_TZ-MD0024-MD0024 H_TZ-MD0024-MD0024           0                0
+## H_TZ-MD0023-MD0023 H_TZ-MD0023-MD0023           0                0
+##                    rs79076205 X8.130000457_G.A
+## H_TZ-MD0021-MD0021          0                0
+## H_TZ-MD0020-MD0020          0                0
+## H_TZ-MD0019-MD0019          0                0
+## H_TZ-MD0024-MD0024          0                0
+## H_TZ-MD0023-MD0023          1                0</code></pre>
 <pre class="r"><code>#Left_join to ensure that the FAMID corresponding to the PIDs in trio.geno are correct
 geno.with.famid &lt;- dplyr::left_join(data.frame(ped[, c(&quot;famid&quot;, &quot;pid&quot;)]), 
-                                    data.frame(geno.with.pid)) </code></pre>
+                                    geno.with.pid) </code></pre>
 <pre><code>## Joining, by = &quot;pid&quot;</code></pre>
-<pre><code>## Warning: Column `pid` joining character vector and factor, coercing into
-## character vector</code></pre>
 <pre class="r"><code>geno.with.famid[1:5,1:5]</code></pre>
 <pre><code>##      famid                pid rs144270645 X8.130000413_C.T rs79076205
 ## 1 GMKF0007 H_TZ-MD0019-MD0019           0                0          0
@@ -722,7 +713,7 @@ geno.with.famid[1:5,1:5]</code></pre>
 <pre class="r"><code>#takes a long time to run!</code></pre>
 <p>We can look at <code>trio.tmp$errors$famid</code> to examine the number of Mendelian errors per family:</p>
 <pre class="r"><code>#This code will not run if there are no Mendelian errors
-mend.err.sorted&lt;-as.data.frame(sort(table(trio.tmp$errors$famid),
+mend.err.sorted &lt;- as.data.frame(sort(table(trio.tmp$errors$famid),
                                     decreasing = TRUE))
 colnames(mend.err.sorted)&lt;-c(&quot;famid&quot;,&quot;mend.errors&quot;)
 mend.err.sorted[1:10,]</code></pre>
