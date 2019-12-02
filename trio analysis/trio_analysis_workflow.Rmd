@@ -682,16 +682,16 @@ Note that you will have to provide the filepath to RV-TDT on your computer to us
 filepath.to.RV_TDT <- "where/you/downloaded/RV-TDT"
 
 #Run on the entire VCF (i.e. 1 window)
-RV_TDT.results<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped,
-                               rv.tdt.dir = filepath.to.RV_TDT)
+RV_TDT.results <- rvtrio::RV_TDT(vcf = vcf, ped = ped,
+                               filepath.RV_TDT = filepath.to.RV_TDT)
 ```
 
 ```{r,echo = FALSE}
 filepath.to.RV_TDT <- "/Users/lindagai 1/Documents/classes/4th year/Research/rv-tdt-master/rvTDT"
 
 #Run on the entire VCF (i.e. 1 window)
-RV_TDT.results<-rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped,
-                               rv.tdt.dir = filepath.to.RV_TDT)
+RV_TDT.results <- rvtrio::RV_TDT(vcf = vcf, ped = ped,
+                               filepath.RV_TDT = filepath.to.RV_TDT)
 ```
 
 It can also be run on sliding windows containing a user-specified number of markers -- here, we'll use 25 markers as an example. Doing sliding windows can take a long time, so you may want to save it.
@@ -699,7 +699,8 @@ It can also be run on sliding windows containing a user-specified number of mark
 ```{r}
 #Run RV-TDT on 25-marker windows
 win.size <- 25
-RV_TDT.results <- rvtrio::RV_TDT(vcf=vcf, vcf.ped = ped, rv.tdt.dir = filepath.to.RV_TDT, 
+RV_TDT.results <- rvtrio::RV_TDT(vcf = vcf, ped = ped,
+                               filepath.RV_TDT = filepath.to.RV_TDT,
                                  window.size = win.size, upper_cutoff=0.01)
 head(RV_TDT.results)
 ```
