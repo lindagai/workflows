@@ -416,7 +416,8 @@ txTr <- GeneRegionTrack(txdb, genome = gen, chromosome = chr,
 ```{r}
 #A. gTDT track
 filepath.genotypic.tdt.results <- "./results/common_var/gTDT.results.txt"
-genotypic.tdt.results <- read.table(filepath.genotypic.tdt.results,header=TRUE)
+genotypic.tdt.results <- read.table(filepath.genotypic.tdt.results,header=TRUE,
+                             stringsAsFactors=FALSE)
 genotypic.tdt.results %>% head
 log10p.gTDT <- -log10(genotypic.tdt.results$pval)
 
@@ -437,7 +438,8 @@ dtrack.gTDT <- DataTrack(data=log10p.gTDT,
 
 ```{r}
 filepath.allelic.tdt.results<-"./results/common_var/aTDT.results.txt"
-allelic.tdt.results <- read.table(filepath.allelic.tdt.results,header=TRUE)
+allelic.tdt.results <- read.table(filepath.allelic.tdt.results,header=TRUE,
+                             stringsAsFactors=FALSE)
 allelic.tdt.results  %>% head
 log10p.aTDT <- -log10(allelic.tdt.results$pval)
 
@@ -665,7 +667,8 @@ Once you have your filtered rare variant set, you can finally start doing some r
 
 ```{r}
 fp.ped<-"./data/raw_data/hg38.ped.txt"
-ped <- read.table(fp.ped,header=TRUE)
+ped <- read.table(fp.ped,header=TRUE,
+                             stringsAsFactors=FALSE)
 head(ped)
 
 fp.rare.filtered.vcf <- "./data/processed_data/rare.var.filtered.vcf"
@@ -828,7 +831,8 @@ dtrack.aTDT <- DataTrack(data=log10p.aTDT,
                 
 ```{r}
 fp.ped<-"./data/raw_data/hg38.ped.txt"
-ped <- read.table(fp.ped,header=TRUE)
+ped <- read.table(fp.ped,header=TRUE,
+                             stringsAsFactors=FALSE)
 head(ped)
 
 #Read in phased VCF that is rare variants only
