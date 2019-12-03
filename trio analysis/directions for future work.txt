@@ -47,7 +47,8 @@ Ex. Use TVTB’s filter rules instead of using indices? Unsure what would be fas
 
 ######################################################
 
-Pros of using filterVcf() in VariantAnnotation and TVTB, instead of base R:
+Pros of using filterVcf() in VariantAnnotation and TVTB
+(vs. downloading annotation info from, e.g., 1000Genomes and using base R:)
 
 #######################
 
@@ -55,17 +56,17 @@ Pros of using filterVcf() in VariantAnnotation and TVTB, instead of base R:
 
 (B) filterRules() require TABIX indexing and dealing with gzipped VCFs, which will make reading large VCF files in and out much faster.
 
+(C) downloading annotation info from websites is frustrating and seems not that reproducible
+
 #######################
 
 Cons of switching to filterVcf() function
 
 #######################
 
-(A) Having to do TABIX indexing adds an extra and perhaps unnecessary hoop to jump through. The trio package includes a built-in filtering function, removeSNPs(), that allows the user to get rid of variants with MAF < 0.2, as does RV-TDT.
+(A) Using TVTB would introduce an additional package dependency
 
-(B) Using TVTB would introduce an additional package dependency
-
-(C) You must install ensemblVEP (e.g. by using a Bioconda package), though this means you need to have the appropriate perl libraries.
+(B) You must install ensemblVEP (e.g. by using a Bioconda package), though this means you need to have the appropriate perl libraries.
 
 
 ######################################################

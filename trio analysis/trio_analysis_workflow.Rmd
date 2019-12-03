@@ -9,7 +9,7 @@ output:
 abstract: |
   Workflow for trio analysis for common and rare variants.
 vignette: |
-  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteIndexEntry{Vignette Title} 
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
