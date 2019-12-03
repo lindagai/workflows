@@ -540,7 +540,7 @@ Once you have gone through this workflow, you should have the following files:
     + all PIDs in VCF are present in PED file and vice versa
     + families with large numbers of Mendelian errors are removed
     + genotype entries are in `"0/0"`, `"1/0"`, or `"1/1"` format
-    + some `NA` values are OK (?)
+    + some `NA` values are OK
         
 Now you are ready to go through the [trio analysis workflow](https://github.com/lindagai/workflows/tree/master/trio%20analysis)!
 
