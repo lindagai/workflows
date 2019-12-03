@@ -41,6 +41,9 @@ library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 #CRAN
 library(dplyr)
 library(ggplot2)
+
+#Github
+library(rvtrio)
 ```
 
 If you do not have them, run the following code:
@@ -55,6 +58,9 @@ BiocManager::install(c("VariantAnnotation", "trio",
 #CRAN
 install.packages("dplyr")
 install.packages("ggplot2")
+
+#Github
+devtools::install_github("lindagai/rvtrio")
 ```
 
 Note that the code used in this workflow follows `tidyverse`-style conventions, including using `dplyr`-style pipes. A good guide to the `tidyverse`-style and conventions can be found [here](https://style.tidyverse.org/pipes.html).
@@ -65,15 +71,6 @@ Note that the code used in this workflow follows `tidyverse`-style conventions, 
 
 #### Install RV-TDT
 RV-TDT can be installed and run on Linux and Mac OS X. Download the source code from Github [here](https://github.com/statgenetics/rv-tdt) and follow the directions to install RV-TDT.
-
-
-#### Install rvtrio (R wrapper function)
-You will need to give the filepath to RV-TDT to use the R wrapper function `RV_TDT` in `rvtrio`. To install rvtrio, run the following code:
-
-```{r, eval=FALSE, warning=FALSE, message=FALSE}
-devtools::install_github("lindagai/rvtrio")
-library(rvtrio)
-```
 
 ### Annotation information
 
