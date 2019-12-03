@@ -15,3 +15,15 @@ knitr::opts_knit$set(root.dir = "/change this to wherever you downloaded this fo
 (a) downloaded RV-TDT from this website: https://github.com/statgenetics/rv-tdt
 
 (b) the correct `filepath.RV_TDT` is added to the .Rmd.
+
+######################################################
+
+NOTES:
+
+######################################################
+
+(1) The .Rmd takes a fairly long time to knit (~ 5 min).
+
+(2) Be aware that you can't overwrite existing VCF files using writeVcf() (i.e., if code chunks that overwrote existing VCF files weren't commented out, you'd get an error if you tried knitting the .Rmd more than one time). Some code chunks are commented out with eval=FALSE for this reason.
+
+If you want to re-run the .Rmd and evaluate those code chunks (e.g., to examine the VCF files at different stages of analysis), just comment them back in. You will have to either delete the new files or comment the code chunks back out to make the .Rmd knit after that, though.
