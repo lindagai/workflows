@@ -1,0 +1,80 @@
+Possible extensions to the trio analysis workflow, in order of estimated difficulty:
+
+######################################################
+
+1.  Better visualizations
+
+######################################################
+
+Some packages you may want to look into: 
+
+(A) GViz has a lot of functionality that is not used in the workflow (but could be)
+
+(B) TVTB also has some good visualizations
+
+Not as recommended:
+
+(*) ggbio (not maintained)
+
+######################################################
+
+2. Phasing
+
+######################################################
+ 
+For haplotype phasing, we use BEAGLE 4.0, which by now is fairly out-of-date — the most recent version is 5.1, though anything above 4.0 does not use pedigree information (so might not be ideal for trio studies).
+
+Could be better to use this one?
+https://faculty.washington.edu/browning/refined-ibd.html?
+
+######################################################
+
+3.  Improve speed/quality of implementations of wrapper functions
+
+######################################################
+
+(A) Benchmark performance of each method using a very small example dataset (e.g. 10 SNPs?)
+
+(B) Look for improvements in function code
+* Code style — is the code “human-readable”? Is it in tidyverse style? etc.
+* Code speed -- are there more efficient implementations?
+
+Ex. Use TVTB’s filter rules instead of using indices? Unsure what would be faster
+
+######################################################
+
+4. Add filtering by annotation in the workflow
+
+######################################################
+
+Pros of using filterVcf() in VariantAnnotation and TVTB, instead of base R:
+
+#######################
+
+(A) Using filterVcf() in VariantAnnotation/TVTB could allow the user to take advantage of the annotation resources on Bioconductor better (e.g. by using AnnotationHub), instead of using annotation .csv and text files that have been downloaded locally (which is possibly less reproducible?).
+
+(B) filterRules() require TABIX indexing and dealing with gzipped VCFs, which will make reading large VCF files in and out much faster.
+
+#######################
+
+Cons of switching to filterVcf() function
+
+#######################
+
+(A) Having to do TABIX indexing adds an extra and perhaps unnecessary hoop to jump through. The trio package includes a built-in filtering function, removeSNPs(), that allows the user to get rid of variants with MAF < 0.2, as does RV-TDT.
+
+(B) Using TVTB would introduce an additional package dependency
+
+(C) You must install ensemblVEP (e.g. by using a Bioconda package), though this means you need to have the appropriate perl libraries.
+
+
+######################################################
+
+5. Comparison of performance of methods
+
+######################################################
+
+1. Add additional rare variant analysis methods to the workflow
+(e.g. (rvTDT, Scan-Trio)
+
+2. Simulate data and compare results using different rare variant analysis methods (rvTDT, Scan-Trio, and RV-TDT)
