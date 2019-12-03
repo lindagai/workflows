@@ -15,7 +15,7 @@ vignette: |
 ---
 
 ```{r,echo=FALSE, message=FALSE, warning=FALSE}
-knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/classes/4th year/Research/workflows/trio analysis/")
+knitr::opts_knit$set(root.dir = "/Users/lindagai 1/Documents/workflows-master/trio analysis/")
 ```
 
 # Introduction
